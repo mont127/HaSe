@@ -15,7 +15,7 @@ Instead of running the full compatibility stack directly through macOS Wine, HaS
 
 The hard part is graphics acceleration.
 
-CheeseBridge exists to make the Linux guest believe it has a Vulkan-capable GPU while the macOS host performs the actual rendering through MoltenVK or a native Metal backend.
+CheeseBridge (still a concept (gonna be really complicated making this but possible)) exists to make the Linux guest believe it has a Vulkan-capable GPU while the macOS host performs the actual rendering through MoltenVK or a native Metal backend.
 
 ## High-Level Stack
 
