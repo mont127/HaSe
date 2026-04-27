@@ -1,4 +1,4 @@
-# HaSe CheeseBridge Vulkan Architecture Notes
+# HaSe: CheeseBridge Vulkan Architecture Notes
 
 Project: MacNCheese  
 Component: HaSe Experimental Backend  
