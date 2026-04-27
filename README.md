@@ -45,7 +45,7 @@ Metal
 Apple GPU
 ```
 
-## Why Vulkan Matters
+## #VULKANMATTERS (Why vulkan is an easy option)
 
 DXVK and VKD3D-Proton already translate DirectX workloads into Vulkan.
 
@@ -57,7 +57,7 @@ How can Vulkan inside a Linux guest render using the macOS host GPU?
 
 CheeseBridge is the proposed answer to that problem.
 
-## What CheeseBridge Is
+## What CheeseBridge Is (A concept)
 
 CheeseBridge is a virtual Vulkan bridge with two sides.
 
@@ -65,7 +65,7 @@ The guest side runs inside the Linux VM. It presents itself as a Vulkan driver o
 
 The host side runs on macOS. It receives the serialized commands, recreates or translates the requested work, executes it through MoltenVK or Metal, and presents the final frame on macOS.
 
-## Simplified Render Flow
+## Simplified Render Flow (Boooooriiiiinnggg)
 
 ```text
 Game makes a DirectX call
@@ -85,7 +85,7 @@ Host executes through MoltenVK or Metal
 Frame appears on screen
 ```
 
-## Important Design Point
+## Important stuff and design ig
 
 MoltenVK by itself is not enough.
 
@@ -103,7 +103,7 @@ Host Vulkan or Metal backend
 
 The concept is similar to Vulkan forwarding designs such as Venus and virtio-gpu, where commands from a guest are forwarded to a renderer on the host.
 
-## Main Components
+## Main Components (Architecture stuff )
 
 ## Vulkan Loader
 
@@ -111,7 +111,7 @@ Inside Linux, applications usually do not call the GPU driver directly. They cal
 
 DXVK and VKD3D-Proton call Vulkan functions through the loader. The loader then discovers and loads an ICD.
 
-## Vulkan ICD
+## Vulkan ICD 
 
 ICD means Installable Client Driver.
 
@@ -133,11 +133,11 @@ vkQueuePresentKHR
 
 The first ICD does not need full Vulkan support. It can start as a stub that loads through the Vulkan loader, logs calls, connects to the host, and returns controlled fake device information.
 
-## CheeseBridge Protocol
+## CheeseBridge Protocol (Complex stuff)
 
 The protocol is the communication format between the Linux guest and the macOS host.
 
-Early prototypes can use JSON or simple structs. Later versions should move to a binary protocol with shared memory for performance.
+Early prototypes can use JSON or simple structs (this is what macndcheese uses for backend communication with the frontend app). Later versions should move to a binary protocol with shared memory for performance.
 
 Initial message types:
 
@@ -178,7 +178,7 @@ Option C is a hybrid model. CheeseBridge starts with MoltenVK and later replaces
 
 The recommended first backend is MoltenVK.
 
-## Memory Model
+## Memory Model(Even more complex (still possible))
 
 Graphics forwarding is not only about commands. It is also about memory.
 
@@ -201,7 +201,7 @@ Synchronization objects
 
 Apple Silicon unified memory helps, but it does not remove the VM boundary. Guest memory and host memory still need to be mapped, copied, or shared correctly.
 
-## Synchronization
+## Synchronization (#WELOVEVULKAN)
 
 Vulkan synchronization is strict and central to correctness.
 
@@ -227,7 +227,7 @@ CheeseBridge must pass shader modules to the macOS host. If the host backend use
 
 A custom Metal backend would make shader handling much harder and should not be part of the first implementation.
 
-## Swapchain and Presentation
+## Swapchain and Presentation 
 
 Games render to a Vulkan swapchain.
 
@@ -256,7 +256,7 @@ The first implementation should use the simplest transport that proves the archi
 Possible transports:
 
 ```text
-TCP localhost socket
+TCP localhost socket (My idea)
 Unix socket
 virtio-vsock
 Shared memory
@@ -545,7 +545,7 @@ status: OK
 
 ## Non-Goals
 
-CheeseBridge should not start with full DXVK support.
+CheeseBridge should not start with full DXVK support. (This is for future possible contributors)
 
 It should not start with AAA games, heavy DirectX 12 workloads, anti-cheat titles, launchers, or custom Metal translation.
 
@@ -575,7 +575,7 @@ After that, the project can move to:
 
 ```text
 Vulkan ICD stub
-        ↓
+        ↓ (I love these arrows)
 vulkaninfo detection
         ↓
 Fake device enumeration
@@ -644,3 +644,7 @@ Performance work
 The goal is not to build the full system at once.
 
 The goal is to prove one layer at a time.
+
+
+
+ALSO prs or first changes are WELCOME . Thanks.
