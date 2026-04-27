@@ -1,9 +1,5 @@
 # HaSe: CheeseBridge Vulkan Architecture Notes
 
-Project: MacNCheese  
-Component: HaSe Experimental Backend  
-Subcomponent: CheeseBridge  
-Purpose: Guest Vulkan to macOS Metal bridge
 
 ## Status
 
