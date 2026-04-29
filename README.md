@@ -7,6 +7,15 @@ CheeseBridge is an experimental research component for MacNCheese.
 
 It is not a production backend, not a replacement for the current MacNCheese Wine path, and not intended for real game support yet. The first goal is to prove that a Linux guest can send Vulkan-like work to a macOS host process and receive correct responses.
 
+
+## How to test 
+```bash
+cmake -S . -B build
+cmake --build build
+build/demo/cheesebridge_fake_host tcp:127.0.0.1:43210
+build/demo/cheesebridge_guest_demo tcp:127.0.0.1:43210
+```
+
 ## Overview
 
 HaSe is an experimental MacNCheese backend designed for a future where relying on Rosetta 2 may not be enough.
