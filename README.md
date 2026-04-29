@@ -283,6 +283,197 @@ Consider virtio-vsock or a custom virtio device later
 
 ## Development Roadmap
 
+ 
+### HaSe Windows Management
+
+HaSe is the runtime manager. CheeseBridge is only the graphics bridge.
+
+A HaSe bottle should be treated as a managed Linux bottle. It contains the Linux userspace, runtime configuration, FEX configuration, Steam or Proton installation, Wine prefix data, Vulkan ICD configuration, shared folders, and per-bottle launch metadata.
+
+The first user-visible goal is not a full Linux desktop. The goal is a CrossOver-style experience where Steam and games appear as normal macOS windows while the Linux environment stays hidden.
+
+The technical requirement is still a Linux kernel. macOS cannot run Linux binaries or Linux containers directly without a Linux kernel underneath. A Docker-style design does not remove this requirement on macOS, because Docker Desktop also runs Linux containers inside a hidden Linux VM.
+
+The first backend should use a small hidden Linux VM. Lima is a good prototype backend because it can manage Linux VM creation, boot, SSH access, file sharing, and port forwarding with less custom code. HaSe can later replace Lima with a native backend built on Apple Virtualization.framework, QEMU, or a custom VM manager.
+
+The VM should not boot into GNOME, KDE, or a normal desktop session. It should boot into a minimal graphical session with only the services needed for Steam, launchers, input, audio, file access, and window tracking.
+
+A useful first layout is:
+```text
+HaSe bottle
+    rootfs or VM image
+    home directory
+    Steam data
+    Proton runtime
+    Wine prefixes
+    FEX rootfs and configuration
+    Vulkan loader configuration
+    CheeseBridge ICD
+    shared folders
+    launch metadata
+    window metadata
+```
+The macOS side should own the visible user experience. HaSe should create the macOS windows, manage their position and size, start and stop the Linux runtime, and connect each visible window to the correct Linux window or game swapchain.
+
+Steam should be allowed to appear. Users expect Steam login, library management, downloads, cloud saves, controller settings, game properties, and Proton selection. HaSe should not require users to launch games only from a custom HaSe library. The correct model is that Steam can appear as a normal macOS window, and games launched from Steam can open as their own macOS windows.
+
+## First Display Model
+
+The simplest first implementation can use a cropped framebuffer model.
+```text
+Linux graphical session
+        ↓
+Black background
+        ↓
+Steam opens a normal Linux window
+        ↓
+HaSe tracks the Steam window rectangle
+        ↓
+HaSe crops that region from the VM display
+        ↓
+HaSe presents the crop inside a macOS NSWindow
+```
+The same idea can be used for child windows:
+```text
+Steam login window
+Steam main window
+Game launcher
+Game window
+Popup menu
+File picker
+Settings dialog
+```
+Each Linux window can become a separate macOS window by tracking its geometry and cropping the correct region from the VM framebuffer. This gives a rootless-window feel without building a full Wayland-to-Cocoa compositor in the first version.
+
+The Linux background should be black or otherwise neutral. No taskbar, panel, dock, wallpaper, desktop icons, or visible system UI should be shown. If the cropped region is correct, the user should only see the selected app window.
+
+## Input Mapping
+```text
+Input must be translated back into Linux coordinates.
+
+macOS window receives mouse event at local position
+        ↓
+HaSe converts local position to Linux display coordinates
+        ↓
+HaSe sends mouse event into the VM
+        ↓
+Linux app receives the event as if it happened inside its own window
+```
+Keyboard input needs the same treatment. HaSe should forward key down, key up, text input, modifier state, focus changes, and shortcut handling. Some shortcuts should remain macOS shortcuts. Others must be delivered to Linux. This needs explicit policy because games, Steam, and launchers expect different behavior.
+
+## Window Resizing
+```text
+Window resizing should be handled in both directions.
+
+Linux app resizes itself
+        ↓
+HaSe resizes the macOS window
+macOS user resizes the window
+        ↓
+HaSe requests a Linux window resize
+        ↓
+Linux app redraws
+        ↓
+HaSe updates the crop
+```
+Menus, dropdowns, and tooltips are important. Many toolkits create them as separate temporary windows. HaSe should detect those windows and either attach them to the parent macOS window or expose them as borderless child NSWindows positioned above the parent.
+
+### Game Rendering Path
+
+Fullscreen games need a separate path. A game that uses Vulkan through DXVK or VKD3D-Proton should eventually present through CheeseBridge instead of the cropped VM framebuffer. The cropped framebuffer path is useful for Steam, launchers, installers, login dialogs, and non-accelerated UI. The CheeseBridge path is for high-performance game rendering.
+
+The long-term display model should have two paths.
+```text
+Steam and launcher UI
+        ↓
+Linux window system
+        ↓
+HaSe window management
+        ↓
+macOS NSWindow
+Game rendering
+        ↓
+DXVK or VKD3D-Proton
+        ↓
+Vulkan
+        ↓
+CheeseBridge
+        ↓
+macOS Metal window
+```
+The cropped framebuffer path can be the first working version. A later version can replace parts of it with a real rootless window bridge that maps Wayland or X11 surfaces more directly into macOS windows.
+For the first prototype, the Linux side can use X11 with a tiny window manager because X11 window geometry and reparenting behavior are easier to inspect. A later Wayland path can use a small custom compositor if needed. The compositor or window manager should expose window IDs, titles, positions, sizes, focus state, stacking order, and parent-child relationships to HaSe.
+
+## macOS Window Table
+
+HaSe should keep a window table on the macOS side.
+```text
+linux_window_id
+macos_window_id
+title
+process_id
+x
+y
+width
+height
+visible
+focused
+parent_window_id
+surface_type
+uses_cheesebridge
+```
+This table lets HaSe decide whether a window is a normal UI window, a Steam window, a launcher window, a popup, or a game render surface.
+
+The first implementation does not need perfect rootless windows. It needs stable window tracking, correct input mapping, correct cropping, and acceptable behavior for Steam login and launching one simple game.
+
+Audio, Clipboard, and File Sharing
+
+Audio should be handled separately from window management. The first path can use PulseAudio or PipeWire inside the Linux guest and forward audio to a macOS host helper. This does not need to be solved by CheeseBridge.
+
+Clipboard support should be explicit. HaSe should sync text clipboard data between macOS and the Linux guest. File drag and drop can come later.
+
+File sharing should be mounted into the Linux environment. The bottle needs access to selected macOS folders, Steam library paths, downloads, and per-bottle storage. The first Lima-based version can use Lima file sharing. A later native VM backend can use VirtioFS or another shared filesystem.
+
+## Launch Sequence
+
+The launch sequence should be deterministic.
+```text
+User opens HaSe bottle
+        ↓
+HaSe starts hidden Linux VM if needed
+        ↓
+HaSe starts CheeseBridge host
+        ↓
+HaSe starts window capture and input bridge
+        ↓
+HaSe starts Linux graphical session
+        ↓
+HaSe launches Steam or selected app
+        ↓
+Steam window appears as macOS window
+        ↓
+User launches game from Steam
+        ↓
+Game window appears as macOS window
+
+## Stop Sequence
+```
+The stop sequence should also be controlled.
+```text
+User closes Steam or bottle
+        ↓
+HaSe asks Linux apps to exit
+        ↓
+HaSe waits for Steam and game processes
+        ↓
+HaSe shuts down CheeseBridge connections
+        ↓
+HaSe stops capture and input bridge
+        ↓
+HaSe suspends or shuts down the Linux VM
+```
+The first goal is not to make the VM disappear technically. The first goal is to make the VM disappear from the user experience.
+
 ## Phase 0: Architecture Notes
 
 Goal:
