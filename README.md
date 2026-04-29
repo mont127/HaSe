@@ -360,7 +360,7 @@ The host can create buffers, images, command buffers, and present frames through
 
 Goal:
 
-Run a very small DirectX application through Wine and DXVK inside the guest.
+Run a very small DirectX application through Wine and DXVK inside the guest.(The linux enviroment)
 
 Success condition:
 
