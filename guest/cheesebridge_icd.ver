@@ -1,0 +1,7 @@
+CHEESEBRIDGE_1 {
+    global:
+        vk_icdGetInstanceProcAddr;
+        vk_icdNegotiateLoaderICDInterfaceVersion;
+    local:
+        *;
+};
