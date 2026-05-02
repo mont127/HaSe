@@ -7,7 +7,9 @@
 
 VKAPI_ATTR VkResult VKAPI_CALL
 cb_vkEnumerateInstanceVersion(uint32_t *pApiVersion) {
-    if (pApiVersion) *pApiVersion = VK_API_VERSION_1_2;
+    if (pApiVersion)
+        *pApiVersion = cb_stub_mode_enabled() ? VK_API_VERSION_1_0
+                                              : VK_API_VERSION_1_2;
     return VK_SUCCESS;
 }
 
@@ -274,6 +276,27 @@ cb_vkGetPhysicalDeviceImageFormatProperties(VkPhysicalDevice physicalDevice,
         memcpy(pProps, reply, sizeof *pProps);
     free(reply);
     return vr;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceSparseImageFormatProperties(
+    VkPhysicalDevice physicalDevice,
+    VkFormat format,
+    VkImageType type,
+    VkSampleCountFlagBits samples,
+    VkImageUsageFlags usage,
+    VkImageTiling tiling,
+    uint32_t *pPropertyCount,
+    VkSparseImageFormatProperties *pProperties) {
+    (void)physicalDevice;
+    (void)format;
+    (void)type;
+    (void)samples;
+    (void)usage;
+    (void)tiling;
+    if (!pPropertyCount) return;
+    *pPropertyCount = 0;
+    (void)pProperties;
 }
 
 /* Per-physical-device extension list. We re-use the host's. */

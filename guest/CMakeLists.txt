@@ -26,6 +26,7 @@ find_package(Threads REQUIRED)
 add_library(cheesebridge_icd SHARED
     src/icd_log.c
     src/icd_handles.c
+    src/icd_stub.c
     src/icd_transport.c
     src/icd_loader.c
     src/icd_instance.c
@@ -45,8 +46,11 @@ target_include_directories(cheesebridge_icd PRIVATE
 target_link_libraries(cheesebridge_icd PRIVATE
     cheesebridge_proto
     Threads::Threads
-    Vulkan::Headers     # registry headers only; we don't link libvulkan
 )
+
+if (TARGET Vulkan::Headers)
+    target_link_libraries(cheesebridge_icd PRIVATE Vulkan::Headers)
+endif()
 
 set_target_properties(cheesebridge_icd PROPERTIES
     OUTPUT_NAME           "CheeseBridge_icd"

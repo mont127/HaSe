@@ -57,6 +57,8 @@ enum cb_opcode {
     CB_OP_BYE                            = 0x0003,
     CB_OP_FAIL_REPLY                     = 0x0004,
     CB_OP_GENERIC_REPLY                  = 0x0005,   /* status-only OK reply */
+    CB_OP_CAPABILITY_QUERY               = 0x0006,
+    CB_OP_CAPABILITY_REPLY               = 0x0007,
 
     /* Instance / physical device */
     CB_OP_CREATE_INSTANCE                = 0x0010,

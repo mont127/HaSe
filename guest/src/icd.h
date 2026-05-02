@@ -82,6 +82,16 @@ VkResult cb_rpc_call_void(uint16_t opcode, const void *payload, uint32_t len);
 /* Async (no reply). Used for destroy_* paths to avoid a round trip. */
 VkResult cb_rpc_send_async(uint16_t opcode, const void *payload, uint32_t len);
 
+/*
+ * Phase 2 local stub backend. The ICD uses this when no CHEESEBRIDGE_HOST is
+ * configured, so Vulkan loader tools can discover a controlled fake device
+ * before the macOS renderer exists.
+ */
+bool     cb_stub_mode_enabled(void);
+VkResult cb_stub_rpc_call(uint16_t opcode, const void *payload, uint32_t len,
+                          uint16_t *out_opcode, void **out_reply,
+                          uint32_t *out_reply_len);
+
 /* ---- Handles -------------------------------------------------------------- */
 
 /*

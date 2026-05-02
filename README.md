@@ -7,14 +7,46 @@ CheeseBridge is an experimental research component for MacNCheese.
 
 It is not a production backend, not a replacement for the current MacNCheese Wine path, and not intended for real game support yet. The first goal is to prove that a Linux guest can send Vulkan-like work to a macOS host process and receive correct responses.
 
+## Phase 1 Demo Build
 
-## How to test 
-```bash
+The default CMake build creates the first fake bridge prototype:
+
+```sh
 cmake -S . -B build
 cmake --build build
+```
+
+Run the fake host in one terminal:
+
+```sh
 build/demo/cheesebridge_fake_host tcp:127.0.0.1:43210
+```
+
+Run the guest demo in another terminal:
+
+```sh
 build/demo/cheesebridge_guest_demo tcp:127.0.0.1:43210
 ```
+
+The guest sends HELLO, CAPABILITY_QUERY, CREATE_INSTANCE, ENUMERATE_PHYSICAL_DEVICES, CREATE_DEVICE, CREATE_BUFFER, QUEUE_SUBMIT, and PRESENT messages. The host logs each request and replies with placeholder ids. This phase intentionally does not require MoltenVK, Metal, Vulkan headers, Wine, DXVK, or a VM.
+
+## Phase 2 Vulkan ICD Stub
+
+The Linux guest ICD can now run as a local stub when no macOS host endpoint is configured. This is the Phase 2 path for loader discovery and `vulkaninfo` smoke tests inside the Linux guest:
+
+```sh
+cmake -S . -B build-guest -DCHEESEBRIDGE_BUILD_GUEST=ON -DCHEESEBRIDGE_BUILD_DEMO=OFF
+cmake --build build-guest
+VK_DRIVER_FILES=$PWD/build-guest/guest/cheesebridge_icd.dev.json CHEESEBRIDGE_LOG=info vulkaninfo --summary
+```
+
+By default the ICD uses the local stub backend unless `CHEESEBRIDGE_HOST` is set. To force the network forwarding path later:
+
+```sh
+CHEESEBRIDGE_STUB=0 CHEESEBRIDGE_HOST=tcp:127.0.0.1:43210 vulkaninfo --summary
+```
+
+The stub reports one integrated GPU named `CheeseBridge Vulkan ICD Stub` and answers the basic instance, physical device, memory, queue-family, and device creation queries expected during early loader probing.
 
 ## Overview
 

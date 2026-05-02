@@ -119,6 +119,15 @@ VkResult cb_transport_connect(void) {
         pthread_mutex_unlock(&g_xport.lock);
         return VK_SUCCESS;
     }
+
+    if (cb_stub_mode_enabled()) {
+        g_xport.fd = -1;
+        g_xport.connected = true;
+        pthread_mutex_unlock(&g_xport.lock);
+        CB_I("using local Vulkan ICD stub backend");
+        return VK_SUCCESS;
+    }
+
     int fd = cb_open_socket();
     if (fd < 0) {
         pthread_mutex_unlock(&g_xport.lock);
@@ -140,8 +149,10 @@ VkResult cb_transport_connect(void) {
 void cb_transport_disconnect(void) {
     pthread_mutex_lock(&g_xport.lock);
     if (g_xport.connected) {
-        cb_write_frame(g_xport.fd, CB_OP_BYE, CB_FLAG_ASYNC, 0, NULL, 0);
-        close(g_xport.fd);
+        if (g_xport.fd >= 0) {
+            cb_write_frame(g_xport.fd, CB_OP_BYE, CB_FLAG_ASYNC, 0, NULL, 0);
+            close(g_xport.fd);
+        }
         g_xport.fd = -1;
         g_xport.connected = false;
     }
@@ -163,6 +174,10 @@ VkResult cb_rpc_call(uint16_t opcode, const void *payload, uint32_t len,
         VkResult vr = cb_transport_connect();
         if (vr != VK_SUCCESS) return vr;
     }
+
+    if (cb_stub_mode_enabled())
+        return cb_stub_rpc_call(opcode, payload, len,
+                                out_opcode, out_reply, out_reply_len);
 
     uint32_t seq = atomic_fetch_add(&g_xport.next_seq, 1);
 
@@ -209,6 +224,7 @@ VkResult cb_rpc_send_async(uint16_t opcode, const void *payload, uint32_t len) {
         VkResult vr = cb_transport_connect();
         if (vr != VK_SUCCESS) return vr;
     }
+    if (cb_stub_mode_enabled()) return VK_SUCCESS;
     pthread_mutex_lock(&g_xport.lock);
     int rc = cb_write_frame(g_xport.fd, opcode, CB_FLAG_ASYNC, 0, payload, len);
     pthread_mutex_unlock(&g_xport.lock);

@@ -28,6 +28,7 @@ VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceQueueFamilyProperties(VkPhy
 VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceMemoryProperties(VkPhysicalDevice, VkPhysicalDeviceMemoryProperties *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceFormatProperties(VkPhysicalDevice, VkFormat, VkFormatProperties *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceImageFormatProperties(VkPhysicalDevice, VkFormat, VkImageType, VkImageTiling, VkImageUsageFlags, VkImageCreateFlags, VkImageFormatProperties *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceSparseImageFormatProperties(VkPhysicalDevice, VkFormat, VkImageType, VkSampleCountFlagBits, VkImageUsageFlags, VkImageTiling, uint32_t *, VkSparseImageFormatProperties *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkEnumerateDeviceExtensionProperties(VkPhysicalDevice, const char *, uint32_t *, VkExtensionProperties *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkEnumerateDeviceLayerProperties(VkPhysicalDevice, uint32_t *, VkLayerProperties *);
 
@@ -179,6 +180,7 @@ static const struct cb_proc_entry g_procs[] = {
     E_INST(vkGetPhysicalDeviceMemoryProperties),
     E_INST(vkGetPhysicalDeviceFormatProperties),
     E_INST(vkGetPhysicalDeviceImageFormatProperties),
+    E_INST(vkGetPhysicalDeviceSparseImageFormatProperties),
     E_INST(vkEnumerateDeviceExtensionProperties),
     E_INST(vkEnumerateDeviceLayerProperties),
 
@@ -299,6 +301,12 @@ cb_vkGetDeviceProcAddr(VkDevice device, const char *pName) {
 CB_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
 vk_icdGetInstanceProcAddr(VkInstance instance, const char *pName) {
     return cb_vkGetInstanceProcAddr(instance, pName);
+}
+
+CB_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
+vk_icdGetPhysicalDeviceProcAddr(VkInstance instance, const char *pName) {
+    (void)instance;
+    return cb_lookup_instance_proc(pName);
 }
 
 CB_EXPORT VKAPI_ATTR VkResult VKAPI_CALL
