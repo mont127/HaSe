@@ -156,7 +156,11 @@ int main(int argc, const char **argv) {
          * handlers actually fires. We do not require an .app bundle - the
          * accessory activation policy is enough to pump NSRunLoop. */
         NSApplication *app = [NSApplication sharedApplication];
-        [app setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        /* Regular policy gets us a normal app window in the dock. Accessory
+         * mode hides the dock entry but on some macOS versions also keeps
+         * windows behind other apps until the user clicks them. */
+        [app setActivationPolicy:NSApplicationActivationPolicyRegular];
+        [app activateIgnoringOtherApps:YES];
         [app run];
     }
     return 0;

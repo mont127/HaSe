@@ -81,6 +81,93 @@ static VkResult replay_clear_color_image(host_device_rec_t *dev,
     return VK_SUCCESS;
 }
 
+static VkResult replay_pipeline_barrier(host_device_rec_t *dev,
+                                        VkCommandBuffer cb,
+                                        cmd_reader_t *r,
+                                        uint32_t entry_size) {
+    /* Layout matches guest cb_vkCmdPipelineBarrier serialization:
+     *   u32 src | u32 dst | u32 dep
+     *   u32 mb_count | mb_count * VkMemoryBarrier (raw bytes)
+     *   u32 bb_count | bb_count * (4*u32 + 3*u64)        (per-buffer barrier)
+     *   u32 ib_count | ib_count * (6*u32 + u64 + 5*u32)  (per-image barrier)
+     */
+    if (!cr_avail(r, 4 + 4 + 4 + 4)) return VK_ERROR_INITIALIZATION_FAILED;
+    uint32_t src   = cr_u32(r);
+    uint32_t dst   = cr_u32(r);
+    uint32_t dep   = cr_u32(r);
+
+    uint32_t mb_n = cr_u32(r);
+    if (!cr_avail(r, mb_n * sizeof(VkMemoryBarrier) + 4))
+        return VK_ERROR_INITIALIZATION_FAILED;
+    const VkMemoryBarrier *mb_raw =
+        (const VkMemoryBarrier *)cr_bytes(r, mb_n * sizeof(VkMemoryBarrier));
+
+    uint32_t bb_n = cr_u32(r);
+    VkBufferMemoryBarrier *bbs = bb_n
+        ? (VkBufferMemoryBarrier *)calloc(bb_n, sizeof *bbs) : NULL;
+    for (uint32_t i = 0; i < bb_n; ++i) {
+        if (!cr_avail(r, 4*4 + 3*8)) { free(bbs); return VK_ERROR_INITIALIZATION_FAILED; }
+        bbs[i].sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        bbs[i].srcAccessMask       = cr_u32(r);
+        bbs[i].dstAccessMask       = cr_u32(r);
+        bbs[i].srcQueueFamilyIndex = cr_u32(r);
+        bbs[i].dstQueueFamilyIndex = cr_u32(r);
+        uint64_t buf_id            = cr_u64(r);
+        bbs[i].offset              = cr_u64(r);
+        bbs[i].size                = cr_u64(r);
+        bbs[i].buffer = (VkBuffer)host_table_get(buf_id, HK_BUFFER);
+        if (!bbs[i].buffer) {
+            host_log(HL_WARN, "barrier: unknown buffer id=%llu", (unsigned long long)buf_id);
+        }
+    }
+
+    uint32_t ib_n = cr_u32(r);
+    VkImageMemoryBarrier *ibs = ib_n
+        ? (VkImageMemoryBarrier *)calloc(ib_n, sizeof *ibs) : NULL;
+    for (uint32_t i = 0; i < ib_n; ++i) {
+        if (!cr_avail(r, 6*4 + 8 + 5*4)) {
+            free(bbs); free(ibs); return VK_ERROR_INITIALIZATION_FAILED;
+        }
+        ibs[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        ibs[i].srcAccessMask       = cr_u32(r);
+        ibs[i].dstAccessMask       = cr_u32(r);
+        ibs[i].oldLayout           = (VkImageLayout)cr_u32(r);
+        ibs[i].newLayout           = (VkImageLayout)cr_u32(r);
+        ibs[i].srcQueueFamilyIndex = cr_u32(r);
+        ibs[i].dstQueueFamilyIndex = cr_u32(r);
+        uint64_t img_id            = cr_u64(r);
+        ibs[i].subresourceRange.aspectMask     = cr_u32(r);
+        ibs[i].subresourceRange.baseMipLevel   = cr_u32(r);
+        ibs[i].subresourceRange.levelCount     = cr_u32(r);
+        ibs[i].subresourceRange.baseArrayLayer = cr_u32(r);
+        ibs[i].subresourceRange.layerCount     = cr_u32(r);
+        ibs[i].image = (VkImage)host_table_get(img_id, HK_IMAGE);
+        if (!ibs[i].image) {
+            host_log(HL_WARN, "barrier: unknown image id=%llu", (unsigned long long)img_id);
+        }
+    }
+
+    /* Drop barriers whose target handle didn't resolve — issuing them with
+     * VK_NULL_HANDLE would crash MoltenVK. Compact in place. */
+    uint32_t bb_keep = 0;
+    for (uint32_t i = 0; i < bb_n; ++i) if (bbs[i].buffer) bbs[bb_keep++] = bbs[i];
+    uint32_t ib_keep = 0;
+    for (uint32_t i = 0; i < ib_n; ++i) if (ibs[i].image)  ibs[ib_keep++] = ibs[i];
+
+    if (dev->fn.CmdPipelineBarrier) {
+        dev->fn.CmdPipelineBarrier(cb,
+            (VkPipelineStageFlags)src, (VkPipelineStageFlags)dst,
+            (VkDependencyFlags)dep,
+            mb_n, mb_raw,
+            bb_keep, bbs,
+            ib_keep, ibs);
+    }
+
+    free(bbs); free(ibs);
+    (void)entry_size;
+    return VK_SUCCESS;
+}
+
 static VkResult replay_fill_buffer(host_device_rec_t *dev,
                                    VkCommandBuffer cb,
                                    cmd_reader_t *r,
@@ -131,10 +218,7 @@ VkResult host_replay_command_stream(host_device_rec_t *dev,
             handled++;
             break;
         case CB_CMD_PIPELINE_BARRIER:
-            /* Treated as a no-op: MoltenVK is single-queue and barriers
-             * encode synchronization that does not change pixel state.
-             * Phase 4 will decode the masks and call CmdPipelineBarrier
-             * with real arguments. */
+            vr = replay_pipeline_barrier(dev, cb, &er, size);
             handled++;
             break;
         default:

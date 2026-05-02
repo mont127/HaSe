@@ -144,6 +144,7 @@ VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPh
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice, VkSurfaceKHR, uint32_t *, VkSurfaceFormatKHR *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceSurfacePresentModesKHR(VkPhysicalDevice, VkSurfaceKHR, uint32_t *, VkPresentModeKHR *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateSwapchainKHR(VkDevice, const VkSwapchainCreateInfoKHR *, const VkAllocationCallbacks *, VkSwapchainKHR *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateCheeseBridgeSurfaceKHR(VkInstance, uint32_t, uint32_t, VkSurfaceKHR *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroySwapchainKHR(VkDevice, VkSwapchainKHR, const VkAllocationCallbacks *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetSwapchainImagesKHR(VkDevice, VkSwapchainKHR, uint32_t *, VkImage *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkAcquireNextImageKHR(VkDevice, VkSwapchainKHR, uint64_t, VkSemaphore, VkFence, uint32_t *);
@@ -262,6 +263,10 @@ static const struct cb_proc_entry g_procs[] = {
 
     E_DEV (vkCreateSwapchainKHR),    E_DEV (vkDestroySwapchainKHR),
     E_DEV (vkGetSwapchainImagesKHR), E_DEV (vkAcquireNextImageKHR),
+
+    /* CheeseBridge-specific instance extension for getting a surface
+     * backed by an NSWindow + CAMetalLayer on the macOS host. */
+    E_INST(vkCreateCheeseBridgeSurfaceKHR),
 };
 
 static PFN_vkVoidFunction cb_lookup(const char *name, bool device_only) {

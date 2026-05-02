@@ -110,7 +110,9 @@ static void op_create_instance(host_conn_t *c, uint32_t seq, cb_reader_t *r) {
 
     cb_remote_id_t id = (cb_remote_id_t)(uintptr_t)rec;  /* opaque non-zero id */
     host_table_put(id, HK_HOST_INSTANCE, rec, 0);
-    HI("CreateInstance -> %llu (vk=%p)", (unsigned long long)id, (void *)vki);
+    HI("CreateInstance -> %llu (vk=%p) [%u/%zu instance exts enabled]",
+       (unsigned long long)id, (void *)vki, kInstExtCount,
+       sizeof kInstExtsWanted / sizeof kInstExtsWanted[0]);
     host_reply_id(c, seq, id);
 }
 

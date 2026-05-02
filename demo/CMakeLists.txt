@@ -46,3 +46,30 @@ foreach(target cheesebridge_fake_host cheesebridge_guest_demo)
         )
     endif()
 endforeach()
+
+# ---- Phase 3 end-to-end clear demo ---------------------------------------
+# Links against the system Vulkan loader, then VK_DRIVER_FILES picks up the
+# CheeseBridge ICD and routes calls to the macOS host. Only useful on Linux
+# (the guest side); skip on macOS where there is no real Vulkan loader.
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(Vulkan QUIET)
+    if (Vulkan_FOUND)
+        add_executable(cheesebridge_clear_demo
+            cheesebridge_clear_demo.c
+        )
+        target_link_libraries(cheesebridge_clear_demo PRIVATE
+            Vulkan::Vulkan
+            ${CMAKE_DL_LIBS}
+        )
+        set_target_properties(cheesebridge_clear_demo PROPERTIES
+            C_STANDARD 11
+            C_STANDARD_REQUIRED ON
+        )
+        target_compile_options(cheesebridge_clear_demo PRIVATE
+            -Wall -Wextra -Wno-unused-parameter
+        )
+    else()
+        message(STATUS
+            "Vulkan headers/loader not found - cheesebridge_clear_demo will not be built")
+    endif()
+endif()

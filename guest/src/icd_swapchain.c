@@ -16,6 +16,42 @@
  * (out of scope for this layer; the host lives on macOS).
  */
 
+/*
+ * CheeseBridge-specific surface creation. The guest application calls this
+ * directly (or through the loader's vkGetInstanceProcAddr) to get a
+ * VkSurfaceKHR backed by an NSWindow + CAMetalLayer on the macOS host.
+ *
+ * Wire payload (CB_OP_CREATE_SURFACE):
+ *   u64 instance_id | u32 width | u32 height
+ * Reply: u64 surface_remote_id (host-side handle).
+ */
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkCreateCheeseBridgeSurfaceKHR(VkInstance instance,
+                                  uint32_t width, uint32_t height,
+                                  VkSurfaceKHR *pSurface) {
+    if (!instance || !pSurface) return VK_ERROR_INITIALIZATION_FAILED;
+    cb_instance_t *inst = (cb_instance_t *)instance;
+
+    cb_writer_t w; cb_writer_init_heap(&w, 24);
+    cb_w_u64(&w, inst->remote_id);
+    cb_w_u32(&w, width);
+    cb_w_u32(&w, height);
+    void *reply = NULL; uint32_t rl = 0; uint16_t rop = 0;
+    VkResult vr = cb_rpc_call(CB_OP_CREATE_SURFACE,
+                              w.buf, (uint32_t)w.pos, &rop, &reply, &rl);
+    cb_writer_dispose(&w);
+    if (vr != VK_SUCCESS) { free(reply); return vr; }
+    if (rl < sizeof(cb_remote_id_t)) { free(reply); return VK_ERROR_INITIALIZATION_FAILED; }
+
+    cb_surface_t *s = (cb_surface_t *)calloc(1, sizeof *s);
+    if (!s) { free(reply); return VK_ERROR_OUT_OF_HOST_MEMORY; }
+    memcpy(&s->remote_id, reply, sizeof s->remote_id);
+    s->instance = inst;
+    free(reply);
+    *pSurface = (VkSurfaceKHR)CB_TO_HANDLE(s);
+    return VK_SUCCESS;
+}
+
 VKAPI_ATTR void VKAPI_CALL
 cb_vkDestroySurfaceKHR(VkInstance instance, VkSurfaceKHR surface,
                        const VkAllocationCallbacks *pAllocator) {
