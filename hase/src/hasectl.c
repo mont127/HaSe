@@ -217,6 +217,15 @@ static void ensure_bottle_exists(const hase_config_t *cfg) {
         die("bottle does not exist: %s\nRun: hasectl init %s", cfg->bottle, cfg->name);
 }
 
+static bool lima_instance_exists(const hase_config_t *cfg) {
+    const char *home = getenv("HOME");
+    if (!home || !*home) return false;
+    char lima_root[PATH_MAX], instance_dir[PATH_MAX];
+    path_join(lima_root, sizeof lima_root, home, ".lima");
+    path_join(instance_dir, sizeof instance_dir, lima_root, cfg->vm_name);
+    return exists_dir(instance_dir);
+}
+
 static void write_lima_yaml(const hase_config_t *cfg) {
     char *bottle = yaml_quote(cfg->bottle);
     size_t cap = 8192;
@@ -238,6 +247,9 @@ static void write_lima_yaml(const hase_config_t *cfg) {
         "- location: %s\n"
         "  mountPoint: \"/mnt/hase\"\n"
         "  writable: true\n"
+        "containerd:\n"
+        "  system: false\n"
+        "  user: false\n"
         "ssh:\n"
         "  localPort: 0\n"
         "provision:\n"
@@ -281,6 +293,12 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "if ! DISPLAY=\"${DISPLAY}\" wmctrl -m >/dev/null 2>&1; then\n"
         "  DISPLAY=\"${DISPLAY}\" openbox >/tmp/hase/openbox.log 2>&1 &\n"
         "fi\n"
+        "i=0\n"
+        "while ! DISPLAY=\"${DISPLAY}\" wmctrl -m >/dev/null 2>&1; do\n"
+        "  i=$((i + 1))\n"
+        "  [ \"$i\" -ge 50 ] && break\n"
+        "  sleep 0.1\n"
+        "done\n"
         "printf '%s\\n' \"${DISPLAY}\" >/tmp/hase/display\n"
         "printf 'HaSe hidden X11 session running on %s\\n' \"${DISPLAY}\"\n",
         0755);
@@ -412,14 +430,25 @@ static int cmd_paths(const hase_config_t *cfg) {
 
 static int cmd_start(const hase_config_t *cfg) {
     ensure_bottle_exists(cfg);
-    char name_arg[192];
-    snprintf(name_arg, sizeof name_arg, "--name=%s", cfg->vm_name);
-    char *start_argv[] = { "limactl", "start", name_arg, (char *)cfg->lima_yaml, NULL };
-    int rc = run_wait(start_argv);
+    int rc = 0;
+    if (lima_instance_exists(cfg)) {
+        char *start_existing_argv[] = {
+            "limactl", "--tty=false", "start", (char *)cfg->vm_name, NULL
+        };
+        rc = run_wait(start_existing_argv);
+    } else {
+        char name_arg[192];
+        snprintf(name_arg, sizeof name_arg, "--name=%s", cfg->vm_name);
+        char *start_new_argv[] = {
+            "limactl", "--tty=false", "start", "--containerd=none",
+            name_arg, (char *)cfg->lima_yaml, NULL
+        };
+        rc = run_wait(start_new_argv);
+    }
     if (rc != 0) return rc;
 
     char *session_argv[] = {
-        "limactl", "shell", (char *)cfg->vm_name,
+        "limactl", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name,
         "sh", "-lc", "/mnt/hase/runtime/start-session.sh",
         NULL
     };
@@ -429,7 +458,7 @@ static int cmd_start(const hase_config_t *cfg) {
 static int cmd_stop(const hase_config_t *cfg) {
     ensure_bottle_exists(cfg);
     char *session_argv[] = {
-        "limactl", "shell", (char *)cfg->vm_name,
+        "limactl", "shell", "--workdir=/", (char *)cfg->vm_name,
         "sh", "-lc", "/mnt/hase/runtime/stop-session.sh",
         NULL
     };
@@ -446,7 +475,9 @@ static int cmd_status(const hase_config_t *cfg) {
 
 static int cmd_shell(const hase_config_t *cfg) {
     ensure_bottle_exists(cfg);
-    char *argv[] = { "limactl", "shell", (char *)cfg->vm_name, NULL };
+    char *argv[] = {
+        "limactl", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name, NULL
+    };
     execvp(argv[0], argv);
     fprintf(stderr, "exec limactl: %s\n", strerror(errno));
     return 127;
@@ -455,7 +486,7 @@ static int cmd_shell(const hase_config_t *cfg) {
 static int cmd_steam(const hase_config_t *cfg) {
     ensure_bottle_exists(cfg);
     char *argv[] = {
-        "limactl", "shell", (char *)cfg->vm_name,
+        "limactl", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name,
         "sh", "-lc", "/mnt/hase/runtime/launch-steam.sh",
         NULL
     };
@@ -465,8 +496,9 @@ static int cmd_steam(const hase_config_t *cfg) {
 static int cmd_windows(const hase_config_t *cfg) {
     ensure_bottle_exists(cfg);
     char *argv[] = {
-        "limactl", "shell", (char *)cfg->vm_name,
-        "sh", "-lc", "/mnt/hase/runtime/window-snapshot.sh",
+        "limactl", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name,
+        "sh", "-lc",
+        "/mnt/hase/runtime/start-session.sh >/dev/null && /mnt/hase/runtime/window-snapshot.sh",
         NULL
     };
     return run_wait(argv);

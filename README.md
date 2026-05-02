@@ -94,6 +94,8 @@ Start the VM and hidden graphical session:
 build/hase/hasectl start test
 ```
 
+First boot downloads the Ubuntu ARM64 image and installs the minimal X11 tooling, so it can take a few minutes. HaSe disables Lima containerd for new bottles because the VM is used as a managed Linux runtime, not as a container host.
+
 Useful prototype commands:
 
 ```sh
