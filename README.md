@@ -48,6 +48,44 @@ CHEESEBRIDGE_STUB=0 CHEESEBRIDGE_HOST=tcp:127.0.0.1:43210 vulkaninfo --summary
 
 The stub reports one integrated GPU named `CheeseBridge Vulkan ICD Stub` and answers the basic instance, physical device, memory, queue-family, and device creation queries expected during early loader probing.
 
+## Phase 5 DXVK Smoke Test
+
+After the Phase 4 triangle renders through `cheesebridge_host`, the next target is a tiny Direct3D 11 app running through Wine + DXVK inside the Linux guest.
+
+Start the macOS CheeseBridge host in one terminal:
+
+```sh
+build/host/cheesebridge_host 43210
+```
+
+Install the guest ICD and demo payloads into the bottle:
+
+```sh
+build/hase/hasectl start test
+build/hase/hasectl install-icd test
+```
+
+`install-icd` also cross-compiles `demo/d3d11_smoke.c` into `/mnt/hase/vulkan/icd.d/d3d11-smoke.exe` inside the VM. Prepare the Wine/DXVK prefix:
+
+```sh
+build/hase/hasectl prepare-dxvk-smoke test
+```
+
+Then run the smoke:
+
+```sh
+build/hase/hasectl run-dxvk-smoke test
+```
+
+The default ARM64 HaSe bottle still needs FEX plus an x86_64 Wine rootfs for real Windows x86_64 binaries. The smoke scripts use `FEXBash` automatically when present. For a temporary native-x86 Linux smoke path, create a separate Lima bottle with `--arch x86_64` and Rosetta:
+
+```sh
+build/hase/hasectl init dxvk-smoke --arch x86_64
+build/hase/hasectl start dxvk-smoke --arch x86_64
+```
+
+DXVK install sources are tried in this order: `HASE_DXVK_DIR`, a `dxvk-*.tar.*` archive placed in `/mnt/hase/proton`, then `winetricks -q dxvk`.
+
 ## HaSe Linux VM Prototype
 
 HaSe is the runtime manager. CheeseBridge is only the Vulkan graphics bridge. The first implementation is a Lima-backed bottle manager that creates a hidden Linux VM shape with a minimal X11 session for Steam, launchers, and installer UI.

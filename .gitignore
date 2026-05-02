@@ -1,2 +1,6 @@
 build/
+build-*/
+buil/
+graphify-out/
+.../
 .DS_Store
