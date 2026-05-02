@@ -703,7 +703,7 @@ Success condition:
 
 The DirectX application creates a Vulkan device through CheeseBridge and reaches the host renderer.
 
-## Phase 6: First Game Test
+## Phase 6: First Game Test - CURRENT STAGE 
 
 Goal:
 
