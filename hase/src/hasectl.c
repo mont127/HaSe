@@ -41,6 +41,7 @@ static void usage(FILE *out) {
         "  hasectl status <bottle> [--root DIR]\n"
         "  hasectl shell <bottle> [--root DIR]\n"
         "  hasectl steam <bottle> [--root DIR]\n"
+        "  hasectl demo-window <bottle> [--root DIR]\n"
         "  hasectl windows <bottle> [--root DIR]\n"
         "  hasectl paths <bottle> [--root DIR]\n"
         "\n"
@@ -261,7 +262,8 @@ static void write_lima_yaml(const hase_config_t *cfg) {
         "    apt-get update\n"
         "    apt-get install -y --no-install-recommends \\\n"
         "      ca-certificates curl dbus-x11 openbox pulseaudio-utils \\\n"
-        "      vulkan-tools wmctrl x11-utils x11-xserver-utils xdotool xvfb\n"
+        "      netpbm vulkan-tools wmctrl x11-apps x11-utils \\\n"
+        "      x11-xserver-utils xdotool xvfb\n"
         "message: |\n"
         "  HaSe bottle %s is ready.\n"
         "  Start the hidden X11 session with: /mnt/hase/runtime/start-session.sh\n",
@@ -326,6 +328,39 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "DISPLAY=\"${DISPLAY}\" wmctrl -lG -p | awk '\n"
         "BEGIN { printf(\"linux_window_id\\tprocess_id\\tx\\ty\\twidth\\theight\\ttitle\\n\") }\n"
         "{ id=$1; pid=$3; x=$4; y=$5; w=$6; h=$7; title=\"\"; for (i=9; i<=NF; ++i) title=title (i==9 ? \"\" : \" \") $i; printf(\"%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n\", id, pid, x, y, w, h, title) }'\n",
+        0755);
+
+    path_join(path, sizeof path, runtime, "capture-window-png.sh");
+    write_file(path,
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "if [ \"$#\" -ne 1 ]; then\n"
+        "  echo 'usage: capture-window-png.sh WINDOW_ID' >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
+        "for tool in xwd xwdtopnm pnmtopng; do\n"
+        "  if ! command -v \"$tool\" >/dev/null 2>&1; then\n"
+        "    echo \"$tool is not installed; install x11-apps and netpbm in the HaSe VM\" >&2\n"
+        "    exit 2\n"
+        "  fi\n"
+        "done\n"
+        "DISPLAY=\"${DISPLAY}\" xwd -silent -id \"$1\" | xwdtopnm 2>/dev/null | pnmtopng\n",
+        0755);
+
+    path_join(path, sizeof path, runtime, "launch-test-window.sh");
+    write_file(path,
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "/mnt/hase/runtime/start-session.sh >/dev/null\n"
+        "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
+        "if ! command -v xmessage >/dev/null 2>&1; then\n"
+        "  echo 'xmessage is not installed; install x11-utils in the HaSe VM' >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "nohup xmessage -name HaSeTestWindow -title 'HaSe Test Window' -center \\\n"
+        "  'HaSe guest window captured by macOS host' >/tmp/hase/test-window.log 2>&1 &\n"
+        "printf 'HaSe test window launched in hidden X11 session\\n'\n",
         0755);
 
     path_join(path, sizeof path, runtime, "launch-steam.sh");
@@ -430,6 +465,8 @@ static int cmd_paths(const hase_config_t *cfg) {
 
 static int cmd_start(const hase_config_t *cfg) {
     ensure_bottle_exists(cfg);
+    write_runtime_scripts(cfg);
+    write_lima_yaml(cfg);
     int rc = 0;
     if (lima_instance_exists(cfg)) {
         char *start_existing_argv[] = {
@@ -485,6 +522,7 @@ static int cmd_shell(const hase_config_t *cfg) {
 
 static int cmd_steam(const hase_config_t *cfg) {
     ensure_bottle_exists(cfg);
+    write_runtime_scripts(cfg);
     char *argv[] = {
         "limactl", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name,
         "sh", "-lc", "/mnt/hase/runtime/launch-steam.sh",
@@ -493,8 +531,20 @@ static int cmd_steam(const hase_config_t *cfg) {
     return run_wait(argv);
 }
 
+static int cmd_demo_window(const hase_config_t *cfg) {
+    ensure_bottle_exists(cfg);
+    write_runtime_scripts(cfg);
+    char *argv[] = {
+        "limactl", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name,
+        "sh", "-lc", "/mnt/hase/runtime/launch-test-window.sh",
+        NULL
+    };
+    return run_wait(argv);
+}
+
 static int cmd_windows(const hase_config_t *cfg) {
     ensure_bottle_exists(cfg);
+    write_runtime_scripts(cfg);
     char *argv[] = {
         "limactl", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name,
         "sh", "-lc",
@@ -519,6 +569,7 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "status")) return cmd_status(&cfg);
     if (!strcmp(argv[1], "shell")) return cmd_shell(&cfg);
     if (!strcmp(argv[1], "steam")) return cmd_steam(&cfg);
+    if (!strcmp(argv[1], "demo-window")) return cmd_demo_window(&cfg);
     if (!strcmp(argv[1], "windows")) return cmd_windows(&cfg);
     if (!strcmp(argv[1], "paths")) return cmd_paths(&cfg);
 

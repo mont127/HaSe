@@ -102,11 +102,29 @@ Useful prototype commands:
 build/hase/hasectl status test
 build/hase/hasectl shell test
 build/hase/hasectl steam test
+build/hase/hasectl demo-window test
 build/hase/hasectl windows test
 build/hase/hasectl stop test
 ```
 
 The generated Linux runtime uses `Xvfb` plus `openbox` on display `:99`, with a black background and no desktop shell. `windows` returns Linux window IDs, process IDs, geometry, and titles using `wmctrl`. That is the first cropped-framebuffer/window-tracking model; later HaSe can replace it with direct Wayland/X11 surface bridging while CheeseBridge handles accelerated Vulkan game presentation.
+
+On macOS, the default build also creates the first host-side window bridge:
+
+```sh
+build/hase/hasectl start test
+build/hase/hasectl demo-window test
+build/hase/hase_window_host --list test
+build/hase/hase_window_host test
+```
+
+`hase_window_host` opens a native macOS window, polls the hidden Linux X11 session through `limactl`, captures the selected X11 window as PNG frames, and displays them in Cocoa. Pass a specific Linux window ID from `--list` to attach to a particular window:
+
+```sh
+build/hase/hase_window_host test 0x0060001b
+```
+
+This is intentionally a first cropped-framebuffer host path for Steam/login/launcher UI. High-performance game rendering still belongs to CheeseBridge Vulkan presentation later.
 
 ## Overview
 
