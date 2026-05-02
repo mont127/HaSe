@@ -109,18 +109,76 @@ static NSString *LimactlShellScript(NSString *vmName, NSString *guestScript) {
         path, ShellQuote(vmName), ShellQuote(guestScript)];
 }
 
+static NSInteger IntegerFromCString(const char *s, NSInteger fallback) {
+    if (!s || !*s) return fallback;
+    char *end = NULL;
+    long value = strtol(s, &end, 10);
+    if (end == s) return fallback;
+    return (NSInteger)value;
+}
+
 static NSArray<HaSeLinuxWindow *> *FetchLinuxWindows(NSString *bottle, NSString **errorText) {
-    // With Matchbox, we capture the entire root window instead of specific clients.
-    // Return a dummy root window.
-    HaSeLinuxWindow *w = [[HaSeLinuxWindow alloc] init];
-    w.windowID = @"root";
-    w.processID = 0;
-    w.x = 0;
-    w.y = 0;
-    w.width = 1920;
-    w.height = 1080;
-    w.title = @"HaSe Hidden Session";
-    return @[w];
+    NSString *vmName = VMNameForBottle(bottle);
+    NSString *guestScript =
+        @"export DISPLAY=\"${HASE_DISPLAY:-:99}\"; "
+         "if command -v xwininfo >/dev/null 2>&1; then "
+         "xwininfo -root -tree 2>/dev/null | "
+         "sed -nE 's/^[[:space:]]+(0x[0-9a-fA-F]+).* ([0-9]+)x([0-9]+)([+-][0-9]+)([+-][0-9]+)[[:space:]].*/\\1\\t\\4\\t\\5\\t\\2\\t\\3/p' | "
+         "while IFS='	' read id x y w h; do "
+         "[ -n \"$w\" ] && [ -n \"$h\" ] || continue; "
+         "[ \"$w\" -ge 80 ] && [ \"$h\" -ge 80 ] || continue; "
+         "pid=$(xprop -id \"$id\" _NET_WM_PID 2>/dev/null | awk -F'= ' '/_NET_WM_PID/ {print $2; exit}'); "
+         "class=$(xprop -id \"$id\" WM_CLASS 2>/dev/null | sed -n 's/.*= //p' | head -n1 | tr '\t' ' '); "
+         "title=$(xprop -id \"$id\" _NET_WM_NAME WM_NAME 2>/dev/null | sed -n 's/.*= //p' | head -n1 | tr -d '\"' | tr '\t' ' '); "
+         "[ -n \"$title$class$pid\" ] || continue; "
+         "printf '0x%x\t%s\t%s\t%s\t%s\t%s\t%s\n' \"$id\" \"${pid:-0}\" \"${x:-0}\" \"${y:-0}\" \"$w\" \"$h\" \"${title:-$class}\"; "
+         "done; fi";
+
+    int rc = 0;
+    NSString *err = nil;
+    NSData *data = RunShellData(LimactlShellScript(vmName, guestScript), &rc, &err);
+    if (rc != 0 && errorText) *errorText = err;
+
+    NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
+    NSMutableArray<HaSeLinuxWindow *> *windows = [NSMutableArray array];
+    NSArray<NSString *> *lines = [text componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+    for (NSString *line in lines) {
+        if ([line length] == 0) continue;
+        NSArray<NSString *> *parts = [line componentsSeparatedByString:@"\t"];
+        if ([parts count] < 7) continue;
+
+        HaSeLinuxWindow *w = [[HaSeLinuxWindow alloc] init];
+        w.windowID = parts[0];
+        w.processID = IntegerFromCString([parts[1] UTF8String], 0);
+        w.x = IntegerFromCString([parts[2] UTF8String], 0);
+        w.y = IntegerFromCString([parts[3] UTF8String], 0);
+        w.width = IntegerFromCString([parts[4] UTF8String], 0);
+        w.height = IntegerFromCString([parts[5] UTF8String], 0);
+        w.title = parts[6];
+        if ([w.windowID length] > 0 && w.width >= 80 && w.height >= 80) {
+            [windows addObject:w];
+        }
+    }
+
+    [windows sortUsingComparator:^NSComparisonResult(HaSeLinuxWindow *a, HaSeLinuxWindow *b) {
+        long long areaA = (long long)a.width * (long long)a.height;
+        long long areaB = (long long)b.width * (long long)b.height;
+        if (areaA > areaB) return NSOrderedAscending;
+        if (areaA < areaB) return NSOrderedDescending;
+        return [a.windowID compare:b.windowID];
+    }];
+
+    if ([windows count] > 0) return windows;
+
+    HaSeLinuxWindow *root = [[HaSeLinuxWindow alloc] init];
+    root.windowID = @"root";
+    root.processID = 0;
+    root.x = 0;
+    root.y = 0;
+    root.width = 960;
+    root.height = 540;
+    root.title = @"HaSe Hidden Session";
+    return @[root];
 }
 
 static NSData *CaptureWindowBMP(NSString *bottle, int *exitCode, NSString **errorText) {
@@ -196,7 +254,7 @@ static NSImage *ImageFromXWDData(NSData *data, NSSize *imageSize) {
     uint32_t headerSize = fields[0];
     uint32_t width = fields[4];
     uint32_t height = fields[5];
-    uint32_t byteOrder = fields[8];
+    uint32_t byteOrder = fields[7];
     uint32_t bitsPerPixel = fields[11];
     uint32_t bytesPerLine = fields[12];
     uint32_t redMask = fields[15];
@@ -562,7 +620,9 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 }
 
 - (NSString *)focusScriptForWindowID:(NSString *)windowID {
-    return @"";
+    if ([windowID length] == 0 || [windowID isEqualToString:@"root"]) return @"";
+    return [NSString stringWithFormat:@"xdotool windowfocus %@ 2>/dev/null || true;",
+                                      ShellQuote(windowID)];
 }
 
 - (void)handleMouseMoveEvent:(NSEvent *)event {

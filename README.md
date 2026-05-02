@@ -128,7 +128,7 @@ Start the VM and hidden graphical session:
 build/hase/hasectl start test
 ```
 
-First boot downloads the Ubuntu ARM64 image and installs the minimal X11 tooling, so it can take a few minutes. HaSe disables Lima containerd for new bottles because the VM is used as a managed Linux runtime, not as a container host.
+First boot downloads the Ubuntu ARM64 image and installs the minimal X11 tooling, so it can take a few minutes. HaSe disables Lima containerd for new bottles because the VM is used as a managed Linux runtime, not as a container host. New Lima bottles default to 6 vCPUs, 8 GiB RAM, and a 48 GiB disk because Linux Steam under FEX can kill/restart Steam webhelper when memory is tight.
 
 Useful prototype commands:
 
@@ -143,7 +143,7 @@ build/hase/hasectl windows test
 build/hase/hasectl stop test
 ```
 
-The Steam command launches the Linux Steam bootstrapper through FEX, not Windows Steam through Wine. The generated Linux runtime uses `Xvfb` plus a tiny window manager on display `:99`, with a black background and no desktop shell. The experimental fast path defaults to a smaller `960x540x16` guest display, raw XWD frame capture, and a shared input queue to avoid per-event SSH. Override with `HASE_GEOMETRY`, `HASE_CAPTURE_DELAY`, `HASE_CAPTURE_FORMAT`, `HASE_INPUT_DELAY`, or `HASE_HOST_REFRESH_INTERVAL` when testing.
+The Steam command launches the Linux Steam bootstrapper through FEX, not Windows Steam through Wine. The generated Linux runtime uses `Xvfb` plus a tiny window manager on display `:99`, with a black background and no desktop shell. The experimental fast path defaults to a smaller `960x540x24` guest display, raw XWD frame capture, Steam CEF GPU-disable flags for the UI, and a shared input queue to avoid per-event SSH. Override with `HASE_GEOMETRY`, `HASE_STEAM_ARGS`, `HASE_CAPTURE_DELAY`, `HASE_CAPTURE_FORMAT`, `HASE_INPUT_DELAY`, or `HASE_HOST_REFRESH_INTERVAL` when testing.
 
 On macOS, the default build also creates the first host-side window bridge:
 
