@@ -52,6 +52,12 @@ The stub reports one integrated GPU named `CheeseBridge Vulkan ICD Stub` and ans
 
 HaSe is the runtime manager. CheeseBridge is only the Vulkan graphics bridge. The first implementation is a Lima-backed bottle manager that creates a hidden Linux VM shape with a minimal X11 session for Steam, launchers, and installer UI.
 
+Install Lima first:
+
+```sh
+scripts/install-limactl.sh
+```
+
 Build it with the default CMake build:
 
 ```sh
