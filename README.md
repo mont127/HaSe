@@ -48,7 +48,7 @@ CHEESEBRIDGE_STUB=0 CHEESEBRIDGE_HOST=tcp:127.0.0.1:43210 vulkaninfo --summary
 
 The stub reports one integrated GPU named `CheeseBridge Vulkan ICD Stub` and answers the basic instance, physical device, memory, queue-family, and device creation queries expected during early loader probing.
 
-## Phase 5 DXVK Smoke Test
+## Phase 5 DXVK Smoke Test (3 ,4 were skipped cuz were alresdy implemented and tested)
 
 After the Phase 4 triangle renders through `cheesebridge_host`, the next target is a tiny Direct3D 11 app running through Wine + DXVK inside the Linux guest.
 
