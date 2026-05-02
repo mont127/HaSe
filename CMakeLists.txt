@@ -8,8 +8,13 @@ project(HaSeCheeseBridge
 
 option(CHEESEBRIDGE_BUILD_DEMO "Build the Phase 1 fake CheeseBridge host/guest demo tools" ON)
 option(CHEESEBRIDGE_BUILD_GUEST "Build the Linux Vulkan ICD guest stub" OFF)
+option(HASE_BUILD_MANAGER "Build the HaSe Linux bottle runtime manager prototype" ON)
 
 add_subdirectory(protocol)
+
+if (HASE_BUILD_MANAGER)
+    add_subdirectory(hase)
+endif()
 
 if (CHEESEBRIDGE_BUILD_DEMO)
     add_subdirectory(demo)

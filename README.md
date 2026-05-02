@@ -48,6 +48,58 @@ CHEESEBRIDGE_STUB=0 CHEESEBRIDGE_HOST=tcp:127.0.0.1:43210 vulkaninfo --summary
 
 The stub reports one integrated GPU named `CheeseBridge Vulkan ICD Stub` and answers the basic instance, physical device, memory, queue-family, and device creation queries expected during early loader probing.
 
+## HaSe Linux VM Prototype
+
+HaSe is the runtime manager. CheeseBridge is only the Vulkan graphics bridge. The first implementation is a Lima-backed bottle manager that creates a hidden Linux VM shape with a minimal X11 session for Steam, launchers, and installer UI.
+
+Build it with the default CMake build:
+
+```sh
+cmake -S . -B build
+cmake --build build
+```
+
+Create a bottle:
+
+```sh
+build/hase/hasectl init test
+```
+
+This creates:
+
+```text
+HaSe bottle
+    home/
+    steam/
+    proton/
+    wine-prefixes/default/
+    fex/
+    vulkan/icd.d/
+    shared/
+    metadata/
+    vm/lima.yaml
+    runtime/
+    windows/
+```
+
+Start the VM and hidden graphical session:
+
+```sh
+build/hase/hasectl start test
+```
+
+Useful prototype commands:
+
+```sh
+build/hase/hasectl status test
+build/hase/hasectl shell test
+build/hase/hasectl steam test
+build/hase/hasectl windows test
+build/hase/hasectl stop test
+```
+
+The generated Linux runtime uses `Xvfb` plus `openbox` on display `:99`, with a black background and no desktop shell. `windows` returns Linux window IDs, process IDs, geometry, and titles using `wmctrl`. That is the first cropped-framebuffer/window-tracking model; later HaSe can replace it with direct Wayland/X11 surface bridging while CheeseBridge handles accelerated Vulkan game presentation.
+
 ## Overview
 
 HaSe is an experimental MacNCheese backend designed for a future where relying on Rosetta 2 may not be enough.
