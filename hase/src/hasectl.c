@@ -43,6 +43,9 @@ static void usage(FILE *out) {
         "  hasectl steam <bottle> [--root DIR]\n"
         "  hasectl demo-window <bottle> [--root DIR]\n"
         "  hasectl windows <bottle> [--root DIR]\n"
+        "  hasectl install-icd <bottle> [--root DIR]\n"
+        "  hasectl run-clear-demo <bottle> [--root DIR]\n"
+        "  hasectl run-triangle-demo <bottle> [--root DIR]\n"
         "  hasectl paths <bottle> [--root DIR]\n"
         "\n"
         "Environment:\n"
@@ -348,6 +351,98 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "DISPLAY=\"${DISPLAY}\" xwd -silent -id \"$1\" | xwdtopnm 2>/dev/null | pnmtopng -force\n",
         0755);
 
+    path_join(path, sizeof path, runtime, "install-icd.sh");
+    write_file(path,
+        "#!/bin/sh\n"
+        "# Reads a CheeseBridge source tarball on stdin, builds the guest ICD\n"
+        "# inside the VM, and installs the .so + manifest into the bottle's\n"
+        "# vulkan/icd.d/ so any guest process can find it via VK_ICD_FILENAMES.\n"
+        "set -eu\n"
+        "SRCDIR=/tmp/cb-icd-src\n"
+        "BUILDDIR=/tmp/cb-icd-build\n"
+        "rm -rf \"$SRCDIR\" \"$BUILDDIR\"\n"
+        "mkdir -p \"$SRCDIR\"\n"
+        "(cd \"$SRCDIR\" && tar -xf -)\n"
+        "MISSING=\"\"\n"
+        "for tool in cmake gcc make glslangValidator; do\n"
+        "  command -v \"$tool\" >/dev/null 2>&1 || MISSING=\"$MISSING $tool\"\n"
+        "done\n"
+        "if [ -n \"$MISSING\" ]; then\n"
+        "  echo \"installing build deps inside HaSe VM (missing:$MISSING)...\" >&2\n"
+        "  sudo apt-get update -qq >/dev/null\n"
+        "  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \\\n"
+        "    cmake build-essential libvulkan-dev vulkan-tools glslang-tools >/dev/null\n"
+        "fi\n"
+        "cmake -S \"$SRCDIR\" -B \"$BUILDDIR\" \\\n"
+        "  -DCHEESEBRIDGE_BUILD_GUEST=ON -DCHEESEBRIDGE_BUILD_DEMO=ON \\\n"
+        "  -DHASE_BUILD_MANAGER=OFF >/tmp/cb-icd-cmake.log 2>&1 || {\n"
+        "    echo 'cmake configure failed; see /tmp/cb-icd-cmake.log' >&2\n"
+        "    tail -n 30 /tmp/cb-icd-cmake.log >&2\n"
+        "    exit 1\n"
+        "  }\n"
+        "cmake --build \"$BUILDDIR\" -j\"$(nproc)\" >/tmp/cb-icd-build.log 2>&1 || {\n"
+        "    echo 'build failed; see /tmp/cb-icd-build.log' >&2\n"
+        "    tail -n 30 /tmp/cb-icd-build.log >&2\n"
+        "    exit 1\n"
+        "  }\n"
+        "DST=/mnt/hase/vulkan/icd.d\n"
+        "mkdir -p \"$DST\"\n"
+        "install -m 0755 \"$BUILDDIR/guest/libCheeseBridge_icd.so\" \\\n"
+        "  \"$DST/libCheeseBridge_icd.so\"\n"
+        "cat > \"$DST/cheesebridge_icd.json\" <<JSON\n"
+        "{\n"
+        "    \"file_format_version\": \"1.0.1\",\n"
+        "    \"ICD\": {\n"
+        "        \"library_path\": \"$DST/libCheeseBridge_icd.so\",\n"
+        "        \"api_version\": \"1.0.0\"\n"
+        "    }\n"
+        "}\n"
+        "JSON\n"
+        "if [ -x \"$BUILDDIR/demo/cheesebridge_clear_demo\" ]; then\n"
+        "  install -m 0755 \"$BUILDDIR/demo/cheesebridge_clear_demo\" \"$DST/clear-demo\"\n"
+        "fi\n"
+        "if [ -x \"$BUILDDIR/demo/cheesebridge_triangle_demo\" ]; then\n"
+        "  install -m 0755 \"$BUILDDIR/demo/cheesebridge_triangle_demo\" \"$DST/triangle-demo\"\n"
+        "fi\n"
+        "echo \"installed: $DST/libCheeseBridge_icd.so\"\n"
+        "echo \"manifest:  $DST/cheesebridge_icd.json\"\n",
+        0755);
+
+    path_join(path, sizeof path, runtime, "run-clear-demo.sh");
+    write_file(path,
+        "#!/bin/sh\n"
+        "# Run the Phase 3 clear-color demo against the macOS CheeseBridge\n"
+        "# host. Requires hasectl install-icd to have run already.\n"
+        "set -eu\n"
+        "DST=/mnt/hase/vulkan/icd.d\n"
+        "if [ ! -x \"$DST/clear-demo\" ]; then\n"
+        "  echo 'clear-demo binary missing - run hasectl install-icd <bottle> first' >&2\n"
+        "  exit 1\n"
+        "fi\n"
+        "export CHEESEBRIDGE_ICD_PATH=\"$DST/libCheeseBridge_icd.so\"\n"
+        "export CHEESEBRIDGE_STUB=0\n"
+        "export CHEESEBRIDGE_HOST=\"${CHEESEBRIDGE_HOST:-tcp:host.lima.internal:43210}\"\n"
+        "exec \"$DST/clear-demo\"\n",
+        0755);
+
+    path_join(path, sizeof path, runtime, "run-triangle-demo.sh");
+    write_file(path,
+        "#!/bin/sh\n"
+        "# Run the Phase 4 triangle demo against the macOS CheeseBridge host.\n"
+        "# Requires hasectl install-icd to have run already.\n"
+        "set -eu\n"
+        "DST=/mnt/hase/vulkan/icd.d\n"
+        "if [ ! -x \"$DST/triangle-demo\" ]; then\n"
+        "  echo 'triangle-demo binary missing - install glslang-tools and re-run' >&2\n"
+        "  echo '  hasectl install-icd <bottle>' >&2\n"
+        "  exit 1\n"
+        "fi\n"
+        "export CHEESEBRIDGE_ICD_PATH=\"$DST/libCheeseBridge_icd.so\"\n"
+        "export CHEESEBRIDGE_STUB=0\n"
+        "export CHEESEBRIDGE_HOST=\"${CHEESEBRIDGE_HOST:-tcp:host.lima.internal:43210}\"\n"
+        "exec \"$DST/triangle-demo\"\n",
+        0755);
+
     path_join(path, sizeof path, runtime, "launch-test-window.sh");
     write_file(path,
         "#!/bin/sh\n"
@@ -542,6 +637,124 @@ static int cmd_demo_window(const hase_config_t *cfg) {
     return run_wait(argv);
 }
 
+/* Locate the CheeseBridge source tree.
+ *   1. CHEESEBRIDGE_SRC env var if set
+ *   2. dirname(realpath(argv0))/../..  (build/hase/hasectl -> repo root)
+ *   3. fail
+ * Returns 0 on success and writes the resolved path into out. */
+static int resolve_src_tree(const char *argv0, char *out, size_t out_size) {
+    const char *env = getenv("CHEESEBRIDGE_SRC");
+    if (env && *env) {
+        char tmp[PATH_MAX];
+        snprintf(tmp, sizeof tmp, "%s/CMakeLists.txt", env);
+        if (access(tmp, R_OK) == 0) {
+            snprintf(out, out_size, "%s", env);
+            return 0;
+        }
+    }
+    char real[PATH_MAX];
+    if (realpath(argv0, real)) {
+        char *slash = strrchr(real, '/');
+        if (slash) *slash = '\0';                       /* strip /hasectl     */
+        slash = strrchr(real, '/'); if (slash) *slash = '\0';  /* strip /hase */
+        slash = strrchr(real, '/'); if (slash) *slash = '\0';  /* strip /build*/
+        char tmp[PATH_MAX];
+        snprintf(tmp, sizeof tmp, "%s/CMakeLists.txt", real);
+        if (access(tmp, R_OK) == 0) {
+            snprintf(out, out_size, "%s", real);
+            return 0;
+        }
+    }
+    return -1;
+}
+
+/* Pipe `tar -cf - -C <src> <files...>` into `limactl shell ... <script>`.
+ * Returns the exit status of the right-hand side (the install script). */
+static int run_install_pipeline(const hase_config_t *cfg, const char *src) {
+    int pipefd[2];
+    if (pipe(pipefd) < 0) { perror("pipe"); return 127; }
+
+    pid_t tar_pid = fork();
+    if (tar_pid < 0) { perror("fork"); close(pipefd[0]); close(pipefd[1]); return 127; }
+    if (tar_pid == 0) {
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[0]); close(pipefd[1]);
+        execlp("tar", "tar", "-cf", "-", "-C", src,
+               "CMakeLists.txt", "cmake", "guest", "host", "protocol", "hase",
+               "demo", (char *)NULL);
+        fprintf(stderr, "exec tar: %s\n", strerror(errno));
+        _exit(127);
+    }
+
+    pid_t lima_pid = fork();
+    if (lima_pid < 0) { perror("fork"); close(pipefd[0]); close(pipefd[1]); return 127; }
+    if (lima_pid == 0) {
+        dup2(pipefd[0], STDIN_FILENO);
+        close(pipefd[0]); close(pipefd[1]);
+        execlp("limactl", "limactl", "--tty=false", "shell",
+               "--workdir=/mnt/hase", (char *)cfg->vm_name,
+               "sh", "-lc", "/mnt/hase/runtime/install-icd.sh",
+               (char *)NULL);
+        fprintf(stderr, "exec limactl: %s\n", strerror(errno));
+        _exit(127);
+    }
+
+    close(pipefd[0]); close(pipefd[1]);
+
+    int tar_status = 0, lima_status = 0;
+    waitpid(tar_pid, &tar_status, 0);
+    waitpid(lima_pid, &lima_status, 0);
+    if (WIFEXITED(tar_status) && WEXITSTATUS(tar_status) != 0) {
+        fprintf(stderr, "tar exited with %d\n", WEXITSTATUS(tar_status));
+    }
+    if (WIFEXITED(lima_status)) return WEXITSTATUS(lima_status);
+    return 127;
+}
+
+static int cmd_install_icd(const hase_config_t *cfg, const char *argv0) {
+    ensure_bottle_exists(cfg);
+    write_runtime_scripts(cfg);
+
+    char src[PATH_MAX];
+    if (resolve_src_tree(argv0, src, sizeof src) != 0) {
+        die("could not locate CheeseBridge source tree.\n"
+            "Set CHEESEBRIDGE_SRC=<path-to-repo-root> and retry.");
+    }
+
+    fprintf(stderr, "hasectl: installing ICD into bottle '%s' from %s\n",
+            cfg->name, src);
+
+    if (!lima_instance_exists(cfg)) {
+        fprintf(stderr, "hasectl: VM not running; start it first with: "
+                        "hasectl start %s\n", cfg->name);
+        return 1;
+    }
+
+    return run_install_pipeline(cfg, src);
+}
+
+static int cmd_run_clear_demo(const hase_config_t *cfg) {
+    ensure_bottle_exists(cfg);
+    write_runtime_scripts(cfg);
+    char *argv[] = {
+        "limactl", "--tty=false", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name,
+        "sh", "-lc", "/mnt/hase/runtime/run-clear-demo.sh",
+        NULL
+    };
+    return run_wait(argv);
+}
+
+static int cmd_run_triangle_demo(const hase_config_t *cfg) {
+    ensure_bottle_exists(cfg);
+    write_runtime_scripts(cfg);
+    char *argv[] = {
+        "limactl", "--tty=false", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name,
+        "sh", "-lc", "/mnt/hase/runtime/run-triangle-demo.sh",
+        NULL
+    };
+    return run_wait(argv);
+}
+
 static int cmd_windows(const hase_config_t *cfg) {
     ensure_bottle_exists(cfg);
     write_runtime_scripts(cfg);
@@ -571,6 +784,9 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "steam")) return cmd_steam(&cfg);
     if (!strcmp(argv[1], "demo-window")) return cmd_demo_window(&cfg);
     if (!strcmp(argv[1], "windows")) return cmd_windows(&cfg);
+    if (!strcmp(argv[1], "install-icd")) return cmd_install_icd(&cfg, argv[0]);
+    if (!strcmp(argv[1], "run-clear-demo")) return cmd_run_clear_demo(&cfg);
+    if (!strcmp(argv[1], "run-triangle-demo")) return cmd_run_triangle_demo(&cfg);
     if (!strcmp(argv[1], "paths")) return cmd_paths(&cfg);
 
     usage(stderr);

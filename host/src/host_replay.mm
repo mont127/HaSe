@@ -184,6 +184,151 @@ static VkResult replay_fill_buffer(host_device_rec_t *dev,
     return VK_SUCCESS;
 }
 
+/* ---- Phase 4: render pass / pipeline / draw decoders --------------------- */
+
+static VkResult replay_begin_render_pass(host_device_rec_t *dev,
+                                         VkCommandBuffer cb,
+                                         cmd_reader_t *r,
+                                         uint32_t entry_size) {
+    /* layout: u64 rp_id | u64 fb_id | i32 ox | i32 oy | u32 w | u32 h |
+     *         u32 cv_count | cv_count * VkClearValue (16 bytes) | u32 contents */
+    if (!cr_avail(r, 8 + 8 + 4*4 + 4)) return VK_ERROR_INITIALIZATION_FAILED;
+    uint64_t rp_id = cr_u64(r);
+    uint64_t fb_id = cr_u64(r);
+    VkRect2D area;
+    area.offset.x      = (int32_t)cr_u32(r);
+    area.offset.y      = (int32_t)cr_u32(r);
+    area.extent.width  = cr_u32(r);
+    area.extent.height = cr_u32(r);
+    uint32_t cv_count = cr_u32(r);
+    if (!cr_avail(r, cv_count * sizeof(VkClearValue) + 4))
+        return VK_ERROR_INITIALIZATION_FAILED;
+    const VkClearValue *cvs =
+        (const VkClearValue *)cr_bytes(r, cv_count * sizeof(VkClearValue));
+    uint32_t contents = cr_u32(r);
+
+    VkRenderPass rp = (VkRenderPass)host_table_get(rp_id, HK_RENDER_PASS);
+    VkFramebuffer fb = (VkFramebuffer)host_table_get(fb_id, HK_FRAMEBUFFER);
+    if (!rp || !fb) {
+        host_log(HL_WARN, "begin_render_pass: missing handles rp=%llu fb=%llu",
+                 (unsigned long long)rp_id, (unsigned long long)fb_id);
+        return VK_SUCCESS;
+    }
+    VkRenderPassBeginInfo bi = {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .renderPass = rp,
+        .framebuffer = fb,
+        .renderArea = area,
+        .clearValueCount = cv_count,
+        .pClearValues = cvs,
+    };
+    if (dev->fn.CmdBeginRenderPass)
+        dev->fn.CmdBeginRenderPass(cb, &bi, (VkSubpassContents)contents);
+    (void)entry_size;
+    return VK_SUCCESS;
+}
+
+static VkResult replay_end_render_pass(host_device_rec_t *dev,
+                                       VkCommandBuffer cb,
+                                       cmd_reader_t *r,
+                                       uint32_t entry_size) {
+    (void)r; (void)entry_size;
+    if (dev->fn.CmdEndRenderPass) dev->fn.CmdEndRenderPass(cb);
+    return VK_SUCCESS;
+}
+
+static VkResult replay_next_subpass(host_device_rec_t *dev,
+                                    VkCommandBuffer cb,
+                                    cmd_reader_t *r,
+                                    uint32_t entry_size) {
+    if (entry_size < 4 + 4) return VK_ERROR_INITIALIZATION_FAILED;
+    uint32_t contents = cr_u32(r);
+    if (dev->fn.CmdNextSubpass)
+        dev->fn.CmdNextSubpass(cb, (VkSubpassContents)contents);
+    return VK_SUCCESS;
+}
+
+static VkResult replay_bind_pipeline(host_device_rec_t *dev,
+                                     VkCommandBuffer cb,
+                                     cmd_reader_t *r,
+                                     uint32_t entry_size) {
+    if (entry_size < 4 + 4 + 8) return VK_ERROR_INITIALIZATION_FAILED;
+    uint32_t bp     = cr_u32(r);
+    uint64_t pip_id = cr_u64(r);
+    VkPipeline p = (VkPipeline)host_table_get(pip_id, HK_PIPELINE);
+    if (!p) {
+        host_log(HL_WARN, "bind_pipeline: missing pipeline id=%llu",
+                 (unsigned long long)pip_id);
+        return VK_SUCCESS;
+    }
+    if (dev->fn.CmdBindPipeline)
+        dev->fn.CmdBindPipeline(cb, (VkPipelineBindPoint)bp, p);
+    return VK_SUCCESS;
+}
+
+static VkResult replay_bind_vertex_buffers(host_device_rec_t *dev,
+                                           VkCommandBuffer cb,
+                                           cmd_reader_t *r,
+                                           uint32_t entry_size) {
+    if (!cr_avail(r, 4 + 4)) return VK_ERROR_INITIALIZATION_FAILED;
+    uint32_t first = cr_u32(r);
+    uint32_t n     = cr_u32(r);
+    if (!cr_avail(r, n * (8 + 8))) return VK_ERROR_INITIALIZATION_FAILED;
+
+    VkBuffer     *bufs = n ? (VkBuffer *)calloc(n, sizeof *bufs)     : NULL;
+    VkDeviceSize *offs = n ? (VkDeviceSize *)calloc(n, sizeof *offs) : NULL;
+    uint32_t kept = 0;
+    for (uint32_t i = 0; i < n; ++i) {
+        uint64_t bid = cr_u64(r);
+        uint64_t off = cr_u64(r);
+        VkBuffer b = (VkBuffer)host_table_get(bid, HK_BUFFER);
+        if (b) { bufs[kept] = b; offs[kept] = off; kept++; }
+    }
+    if (kept && dev->fn.CmdBindVertexBuffers)
+        dev->fn.CmdBindVertexBuffers(cb, first, kept, bufs, offs);
+    free(bufs); free(offs);
+    (void)entry_size;
+    return VK_SUCCESS;
+}
+
+static VkResult replay_set_viewport(host_device_rec_t *dev,
+                                    VkCommandBuffer cb,
+                                    cmd_reader_t *r,
+                                    uint32_t entry_size) {
+    if (!cr_avail(r, 4 + 4)) return VK_ERROR_INITIALIZATION_FAILED;
+    uint32_t first = cr_u32(r);
+    uint32_t n     = cr_u32(r);
+    if (!cr_avail(r, n * sizeof(VkViewport))) return VK_ERROR_INITIALIZATION_FAILED;
+    const VkViewport *vps = (const VkViewport *)cr_bytes(r, n * sizeof(VkViewport));
+    if (n && dev->fn.CmdSetViewport) dev->fn.CmdSetViewport(cb, first, n, vps);
+    (void)entry_size;
+    return VK_SUCCESS;
+}
+
+static VkResult replay_set_scissor(host_device_rec_t *dev,
+                                   VkCommandBuffer cb,
+                                   cmd_reader_t *r,
+                                   uint32_t entry_size) {
+    if (!cr_avail(r, 4 + 4)) return VK_ERROR_INITIALIZATION_FAILED;
+    uint32_t first = cr_u32(r);
+    uint32_t n     = cr_u32(r);
+    if (!cr_avail(r, n * sizeof(VkRect2D))) return VK_ERROR_INITIALIZATION_FAILED;
+    const VkRect2D *rs = (const VkRect2D *)cr_bytes(r, n * sizeof(VkRect2D));
+    if (n && dev->fn.CmdSetScissor) dev->fn.CmdSetScissor(cb, first, n, rs);
+    (void)entry_size;
+    return VK_SUCCESS;
+}
+
+static VkResult replay_draw(host_device_rec_t *dev,
+                            VkCommandBuffer cb,
+                            cmd_reader_t *r,
+                            uint32_t entry_size) {
+    if (entry_size < 4 + 4*4) return VK_ERROR_INITIALIZATION_FAILED;
+    uint32_t vc = cr_u32(r), ic = cr_u32(r), fv = cr_u32(r), fi = cr_u32(r);
+    if (dev->fn.CmdDraw) dev->fn.CmdDraw(cb, vc, ic, fv, fi);
+    return VK_SUCCESS;
+}
+
 /* ---- top-level replay loop ----------------------------------------------- */
 
 VkResult host_replay_command_stream(host_device_rec_t *dev,
@@ -219,6 +364,38 @@ VkResult host_replay_command_stream(host_device_rec_t *dev,
             break;
         case CB_CMD_PIPELINE_BARRIER:
             vr = replay_pipeline_barrier(dev, cb, &er, size);
+            handled++;
+            break;
+        case CB_CMD_BEGIN_RENDER_PASS:
+            vr = replay_begin_render_pass(dev, cb, &er, size);
+            handled++;
+            break;
+        case CB_CMD_END_RENDER_PASS:
+            vr = replay_end_render_pass(dev, cb, &er, size);
+            handled++;
+            break;
+        case CB_CMD_NEXT_SUBPASS:
+            vr = replay_next_subpass(dev, cb, &er, size);
+            handled++;
+            break;
+        case CB_CMD_BIND_PIPELINE:
+            vr = replay_bind_pipeline(dev, cb, &er, size);
+            handled++;
+            break;
+        case CB_CMD_BIND_VERTEX_BUFFERS:
+            vr = replay_bind_vertex_buffers(dev, cb, &er, size);
+            handled++;
+            break;
+        case CB_CMD_SET_VIEWPORT:
+            vr = replay_set_viewport(dev, cb, &er, size);
+            handled++;
+            break;
+        case CB_CMD_SET_SCISSOR:
+            vr = replay_set_scissor(dev, cb, &er, size);
+            handled++;
+            break;
+        case CB_CMD_DRAW:
+            vr = replay_draw(dev, cb, &er, size);
             handled++;
             break;
         default:
