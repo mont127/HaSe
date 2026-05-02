@@ -56,12 +56,38 @@ static void op_create_instance(host_conn_t *c, uint32_t seq, cb_reader_t *r) {
         return;
     }
 
-    /* Always enable the Metal surface ext on the host so we can wrap CAMetalLayer. */
-    static const char *kInstExts[] = {
+    /* Enable the Metal surface ext on the host so we can wrap CAMetalLayer.
+     * We talk to MoltenVK directly via dlopen (no Vulkan loader in the host
+     * process), so we must NOT request loader-level extensions like
+     * VK_KHR_portability_enumeration or set the portability bit — MoltenVK
+     * rejects both with VK_ERROR_EXTENSION_NOT_PRESENT.
+     *
+     * We also probe what MoltenVK actually exports and only ask for what's
+     * really there, so a stripped-down build of MoltenVK (no surface ext)
+     * still gets us a valid instance for compute/headless work. */
+    const char *kInstExtsWanted[] = {
         "VK_KHR_surface",
         "VK_EXT_metal_surface",
-        "VK_KHR_portability_enumeration",
     };
+    const char *kInstExts[sizeof kInstExtsWanted / sizeof kInstExtsWanted[0]];
+    uint32_t kInstExtCount = 0;
+
+    {
+        uint32_t n = 0;
+        g_vk.EnumerateInstanceExtensionProperties(NULL, &n, NULL);
+        VkExtensionProperties *avail =
+            (VkExtensionProperties *)calloc(n ? n : 1, sizeof *avail);
+        g_vk.EnumerateInstanceExtensionProperties(NULL, &n, avail);
+        for (size_t i = 0; i < sizeof kInstExtsWanted / sizeof kInstExtsWanted[0]; ++i) {
+            for (uint32_t j = 0; j < n; ++j) {
+                if (!strcmp(kInstExtsWanted[i], avail[j].extensionName)) {
+                    kInstExts[kInstExtCount++] = kInstExtsWanted[i];
+                    break;
+                }
+            }
+        }
+        free(avail);
+    }
 
     VkApplicationInfo ai = {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -71,9 +97,8 @@ static void op_create_instance(host_conn_t *c, uint32_t seq, cb_reader_t *r) {
     VkInstanceCreateInfo ci = {
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         .pApplicationInfo = &ai,
-        .enabledExtensionCount = sizeof kInstExts / sizeof kInstExts[0],
-        .ppEnabledExtensionNames = kInstExts,
-        .flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR,
+        .enabledExtensionCount = kInstExtCount,
+        .ppEnabledExtensionNames = kInstExtCount ? kInstExts : NULL,
     };
     VkInstance vki;
     VkResult vr = g_vk.CreateInstance(&ci, NULL, &vki);
