@@ -143,9 +143,6 @@ static NSData *CaptureWindowPNG(NSString *bottle, NSString *windowID, int *exitC
     NSString *vmName = VMNameForBottle(bottle);
     NSString *guestScript = [NSString stringWithFormat:
         @"WINDOW_ID=%@; "
-         "if [ -x /mnt/hase/runtime/capture-window-png.sh ]; then "
-         "  exec /mnt/hase/runtime/capture-window-png.sh \"$WINDOW_ID\"; "
-         "fi; "
          "export DISPLAY=\"${HASE_DISPLAY:-:99}\"; "
          "for tool in xwd xwdtopnm pnmtopng; do "
          "  if ! command -v \"$tool\" >/dev/null 2>&1; then "
@@ -153,7 +150,7 @@ static NSData *CaptureWindowPNG(NSString *bottle, NSString *windowID, int *exitC
          "    exit 2; "
          "  fi; "
          "done; "
-         "DISPLAY=\"${DISPLAY}\" xwd -silent -id \"$WINDOW_ID\" | xwdtopnm 2>/dev/null | pnmtopng",
+         "DISPLAY=\"${DISPLAY}\" xwd -silent -id \"$WINDOW_ID\" | xwdtopnm 2>/dev/null | pnmtopng -force",
         ShellQuote(windowID)];
     return RunShellData(LimactlShellScript(vmName, guestScript), exitCode, errorText);
 }

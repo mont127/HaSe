@@ -345,7 +345,7 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "    exit 2\n"
         "  fi\n"
         "done\n"
-        "DISPLAY=\"${DISPLAY}\" xwd -silent -id \"$1\" | xwdtopnm 2>/dev/null | pnmtopng\n",
+        "DISPLAY=\"${DISPLAY}\" xwd -silent -id \"$1\" | xwdtopnm 2>/dev/null | pnmtopng -force\n",
         0755);
 
     path_join(path, sizeof path, runtime, "launch-test-window.sh");
