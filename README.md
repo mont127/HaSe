@@ -62,10 +62,11 @@ Install the guest ICD and demo payloads into the bottle:
 
 ```sh
 build/hase/hasectl start test
+build/hase/hasectl install-fex test
 build/hase/hasectl install-icd test
 ```
 
-`install-icd` also cross-compiles `demo/d3d11_smoke.c` into `/mnt/hase/vulkan/icd.d/d3d11-smoke.exe` inside the VM. Prepare the Wine/DXVK prefix:
+`install-fex` installs FEX from the FEX-Emu Ubuntu PPA, downloads an Ubuntu 24.04 x86_64 rootfs with `FEXRootFSFetcher`, and stores the FEX state in `/mnt/hase/fex`. `install-icd` also cross-compiles `demo/d3d11_smoke.c` into `/mnt/hase/vulkan/icd.d/d3d11-smoke.exe` inside the VM. Prepare the Wine/DXVK prefix:
 
 ```sh
 build/hase/hasectl prepare-dxvk-smoke test
@@ -77,12 +78,7 @@ Then run the smoke:
 build/hase/hasectl run-dxvk-smoke test
 ```
 
-The default ARM64 HaSe bottle still needs FEX plus an x86_64 Wine rootfs for real Windows x86_64 binaries. The smoke scripts use `FEXBash` automatically when present. For a temporary native-x86 Linux smoke path, create a separate Lima bottle with `--arch x86_64` and Rosetta:
-
-```sh
-build/hase/hasectl init dxvk-smoke --arch x86_64
-build/hase/hasectl start dxvk-smoke --arch x86_64
-```
+The default HaSe bottle is ARM64-only and uses `FEXBash` for x86_64 execution. `prepare-dxvk-smoke` and `run-dxvk-smoke` run the FEX installer automatically if FEX is missing. The next required runtime piece is an x86_64 Wine or Proton environment inside the FEX rootfs; the old x86_64 Lima/Rosetta smoke path has been removed.
 
 DXVK install sources are tried in this order: `HASE_DXVK_DIR`, a `dxvk-*.tar.*` archive placed in `/mnt/hase/proton`, then `winetricks -q dxvk`.
 
@@ -139,6 +135,7 @@ Useful prototype commands:
 ```sh
 build/hase/hasectl status test
 build/hase/hasectl shell test
+build/hase/hasectl install-fex test
 build/hase/hasectl steam test
 build/hase/hasectl demo-window test
 build/hase/hasectl windows test
