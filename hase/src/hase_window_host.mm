@@ -216,7 +216,9 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 @property(nonatomic) NSSize guestImageSize;
 @property(nonatomic) NSTimeInterval lastMouseMoveSent;
 @property(nonatomic) BOOL refreshInFlight;
+@property(nonatomic) BOOL refreshQueued;
 @property(nonatomic) BOOL sizedFromGuest;
+@property(nonatomic) BOOL haveSeenWindow;
 - (void)handleMouseEvent:(NSEvent *)event button:(NSInteger)button pressed:(BOOL)pressed;
 - (void)handleMouseMoveEvent:(NSEvent *)event;
 - (void)handleScrollEvent:(NSEvent *)event;
@@ -304,11 +306,11 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     [self createHostWindow:NSMakeSize(720, 420)];
     [self refreshNow];
-    self.timer = [NSTimer scheduledTimerWithTimeInterval:0.5
+    self.timer = [NSTimer scheduledTimerWithTimeInterval:0.25
                                                  repeats:YES
                                                    block:^(NSTimer *t) {
         (void)t;
-        [self refreshNow];
+        [self requestRefresh];
     }];
     [NSApp activateIgnoringOtherApps:YES];
 }
@@ -423,11 +425,12 @@ static NSString *KeyNameForEvent(NSEvent *event) {
         int rc = 0;
         NSString *errorText = nil;
         RunShellData(LimactlShellScript(VMNameForBottle(bottle), guestScript), &rc, &errorText);
-        if (rc != 0 && [errorText length] > 0) {
-            dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (rc != 0 && [errorText length] > 0) {
                 [self setStatus:errorText visible:YES];
-            });
-        }
+            }
+            [self requestRefresh];
+        });
     });
 }
 
@@ -509,9 +512,21 @@ static NSString *KeyNameForEvent(NSEvent *event) {
     [self sendInputScript:script];
 }
 
+- (void)requestRefresh {
+    if (self.refreshInFlight) {
+        self.refreshQueued = YES;
+        return;
+    }
+    [self refreshNow];
+}
+
 - (void)refreshNow {
-    if (self.refreshInFlight) return;
+    if (self.refreshInFlight) {
+        self.refreshQueued = YES;
+        return;
+    }
     self.refreshInFlight = YES;
+    self.refreshQueued = NO;
 
     NSString *bottle = self.bottle;
     NSString *explicitID = self.explicitWindowID;
@@ -520,6 +535,7 @@ static NSString *KeyNameForEvent(NSEvent *event) {
         NSString *listError = nil;
         NSArray<HaSeLinuxWindow *> *windows = FetchLinuxWindows(bottle, &listError);
         HaSeLinuxWindow *target = nil;
+        BOOL explicitMissing = NO;
         if ([explicitID length] > 0) {
             for (HaSeLinuxWindow *w in windows) {
                 if ([w.windowID caseInsensitiveCompare:explicitID] == NSOrderedSame) {
@@ -528,6 +544,7 @@ static NSString *KeyNameForEvent(NSEvent *event) {
                 }
             }
             if (!target) {
+                explicitMissing = YES;
                 target = [[HaSeLinuxWindow alloc] init];
                 target.windowID = explicitID;
                 target.title = explicitID;
@@ -536,10 +553,14 @@ static NSString *KeyNameForEvent(NSEvent *event) {
             target = [windows count] > 0 ? windows[0] : nil;
         }
 
-        if (!target) {
+        if (!target || (explicitMissing && self.haveSeenWindow)) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                self.refreshInFlight = NO;
-                [self setStatus:listError ?: @"No Linux windows found on display :99." visible:YES];
+                [self finishRefresh];
+                if (explicitMissing && self.haveSeenWindow) {
+                    [self.window close];
+                } else {
+                    [self setStatus:listError ?: @"No Linux windows found on display :99." visible:YES];
+                }
             });
             return;
         }
@@ -549,7 +570,7 @@ static NSString *KeyNameForEvent(NSEvent *event) {
         NSData *png = CaptureWindowPNG(bottle, target.windowID, &rc, &captureError);
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.refreshInFlight = NO;
+            [self finishRefresh];
             self.selectedWindow = target;
             self.window.title = [NSString stringWithFormat:@"HaSe %@ - %@",
                                  self.bottle,
@@ -576,9 +597,20 @@ static NSString *KeyNameForEvent(NSEvent *event) {
                 }
             }
             self.imageView.image = img;
+            self.haveSeenWindow = YES;
             [self setStatus:@"" visible:NO];
         });
     });
+}
+
+- (void)finishRefresh {
+    self.refreshInFlight = NO;
+    if (self.refreshQueued) {
+        self.refreshQueued = NO;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self refreshNow];
+        });
+    }
 }
 
 @end
