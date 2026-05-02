@@ -257,9 +257,9 @@ static NSImage *ImageFromXWDData(NSData *data, NSSize *imageSize) {
     uint32_t byteOrder = fields[7];
     uint32_t bitsPerPixel = fields[11];
     uint32_t bytesPerLine = fields[12];
-    uint32_t redMask = fields[15];
-    uint32_t greenMask = fields[16];
-    uint32_t blueMask = fields[17];
+    uint32_t redMask = fields[14];
+    uint32_t greenMask = fields[15];
+    uint32_t blueMask = fields[16];
     uint32_t ncolors = fields[19];
     NSUInteger pixelOffset = (NSUInteger)headerSize + ((NSUInteger)ncolors * 12U);
 
