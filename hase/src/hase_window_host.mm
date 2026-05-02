@@ -2,7 +2,9 @@
 
 #include <ctype.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 @interface HaSeLinuxWindow : NSObject
@@ -59,6 +61,17 @@ static NSString *VMNameForBottle(NSString *bottle) {
     return [NSString stringWithFormat:@"hase-%@", bottle];
 }
 
+static NSString *BottlePathForBottle(NSString *bottle) {
+    const char *root = getenv("HASE_ROOT");
+    NSString *rootPath = nil;
+    if (root && *root) {
+        rootPath = [NSString stringWithUTF8String:root];
+    } else {
+        rootPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/HaSe/bottles"];
+    }
+    return [rootPath stringByAppendingPathComponent:bottle];
+}
+
 static NSData *RunShellData(NSString *script, int *exitCode, NSString **errorText) {
     NSTask *task = [[NSTask alloc] init];
     NSPipe *stdoutPipe = [NSPipe pipe];
@@ -97,67 +110,179 @@ static NSString *LimactlShellScript(NSString *vmName, NSString *guestScript) {
 }
 
 static NSArray<HaSeLinuxWindow *> *FetchLinuxWindows(NSString *bottle, NSString **errorText) {
-    NSString *vmName = VMNameForBottle(bottle);
-    NSString *guestScript = @"/mnt/hase/runtime/start-session.sh >/dev/null && /mnt/hase/runtime/window-snapshot.sh";
-    NSString *hostScript = LimactlShellScript(vmName, guestScript);
-
-    int rc = 0;
-    NSString *stderrText = nil;
-    NSData *data = RunShellData(hostScript, &rc, &stderrText);
-    if (rc != 0) {
-        if (errorText) {
-            *errorText = [NSString stringWithFormat:@"window query failed for %@: %@", vmName, stderrText ?: @""];
-        }
-        return @[];
-    }
-
-    NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-    if (!text) {
-        if (errorText) *errorText = @"window query returned non-text data";
-        return @[];
-    }
-
-    NSMutableArray<HaSeLinuxWindow *> *windows = [NSMutableArray array];
-    NSArray<NSString *> *lines = [text componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
-    for (NSString *line in lines) {
-        if ([line length] == 0 || [line hasPrefix:@"linux_window_id"]) continue;
-        NSArray<NSString *> *fields = [line componentsSeparatedByString:@"\t"];
-        if ([fields count] < 7) continue;
-
-        HaSeLinuxWindow *w = [[HaSeLinuxWindow alloc] init];
-        w.windowID = fields[0];
-        w.processID = [fields[1] integerValue];
-        w.x = [fields[2] integerValue];
-        w.y = [fields[3] integerValue];
-        w.width = [fields[4] integerValue];
-        w.height = [fields[5] integerValue];
-        w.title = [[fields subarrayWithRange:NSMakeRange(6, [fields count] - 6)] componentsJoinedByString:@"\t"];
-        if ([w.windowID length] > 0 && w.width > 0 && w.height > 0) {
-            [windows addObject:w];
-        }
-    }
-    return windows;
+    // With Matchbox, we capture the entire root window instead of specific clients.
+    // Return a dummy root window.
+    HaSeLinuxWindow *w = [[HaSeLinuxWindow alloc] init];
+    w.windowID = @"root";
+    w.processID = 0;
+    w.x = 0;
+    w.y = 0;
+    w.width = 1920;
+    w.height = 1080;
+    w.title = @"HaSe Hidden Session";
+    return @[w];
 }
 
-static NSData *CaptureWindowPNG(NSString *bottle, NSString *windowID, int *exitCode, NSString **errorText) {
+static NSData *CaptureWindowBMP(NSString *bottle, int *exitCode, NSString **errorText) {
     NSString *vmName = VMNameForBottle(bottle);
-    NSString *guestScript = [NSString stringWithFormat:
-        @"WINDOW_ID=%@; "
-         "export DISPLAY=\"${HASE_DISPLAY:-:99}\"; "
-         "for tool in xwd xwdtopnm pnmtopng; do "
-         "  if ! command -v \"$tool\" >/dev/null 2>&1; then "
-         "    echo \"$tool is not installed; install x11-apps and netpbm in the HaSe VM\" >&2; "
-         "    exit 2; "
-         "  fi; "
-         "done; "
-         "DISPLAY=\"${DISPLAY}\" xwd -silent -id \"$WINDOW_ID\" | xwdtopnm 2>/dev/null | pnmtopng -force",
-        ShellQuote(windowID)];
+    NSString *guestScript = @"export DISPLAY=\"${HASE_DISPLAY:-:99}\"; "
+                             "xwd -silent -root | xwdtopnm 2>/dev/null | ppmtobmp 2>/dev/null";
     return RunShellData(LimactlShellScript(vmName, guestScript), exitCode, errorText);
 }
 
-static BOOL HasPNGSignature(NSData *data) {
-    static const unsigned char sig[8] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n' };
+static BOOL HasBMPSignature(NSData *data) {
+    static const unsigned char sig[2] = { 'B', 'M' };
     return [data length] >= sizeof sig && memcmp([data bytes], sig, sizeof sig) == 0;
+}
+
+static uint32_t BSwap32(uint32_t v) {
+    return ((v & 0x000000ffU) << 24) |
+           ((v & 0x0000ff00U) << 8) |
+           ((v & 0x00ff0000U) >> 8) |
+           ((v & 0xff000000U) >> 24);
+}
+
+static uint16_t ReadPixel16(const uint8_t *p, BOOL msbFirst) {
+    if (msbFirst) return (uint16_t)(((uint16_t)p[0] << 8) | p[1]);
+    return (uint16_t)(((uint16_t)p[1] << 8) | p[0]);
+}
+
+static uint32_t ReadPixel32(const uint8_t *p, BOOL msbFirst) {
+    if (msbFirst) {
+        return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+               ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+    }
+    return ((uint32_t)p[3] << 24) | ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[1] << 8) | (uint32_t)p[0];
+}
+
+static uint32_t ReadXWDU32(const uint8_t *p, BOOL swap) {
+    uint32_t v = 0;
+    memcpy(&v, p, sizeof v);
+    return swap ? BSwap32(v) : v;
+}
+
+static uint8_t XWDChannel(uint32_t pixel, uint32_t mask) {
+    if (mask == 0) return 0;
+    unsigned shift = 0;
+    while (((mask >> shift) & 1U) == 0U && shift < 31) shift++;
+    uint32_t compact = (pixel & mask) >> shift;
+    uint32_t maxValue = mask >> shift;
+    if (maxValue == 0) return 0;
+    return (uint8_t)((compact * 255U + (maxValue / 2U)) / maxValue);
+}
+
+static NSImage *ImageFromXWDData(NSData *data, NSSize *imageSize) {
+    const uint8_t *bytes = (const uint8_t *)[data bytes];
+    NSUInteger length = [data length];
+    if (length < 100) return nil;
+
+    uint32_t rawVersion = 0;
+    memcpy(&rawVersion, bytes + 4, sizeof rawVersion);
+    BOOL swap = NO;
+    if (rawVersion == 7U) {
+        swap = NO;
+    } else if (BSwap32(rawVersion) == 7U) {
+        swap = YES;
+    } else {
+        return nil;
+    }
+
+    uint32_t fields[25];
+    for (NSUInteger i = 0; i < 25; ++i) {
+        fields[i] = ReadXWDU32(bytes + (i * 4), swap);
+    }
+
+    uint32_t headerSize = fields[0];
+    uint32_t width = fields[4];
+    uint32_t height = fields[5];
+    uint32_t byteOrder = fields[8];
+    uint32_t bitsPerPixel = fields[11];
+    uint32_t bytesPerLine = fields[12];
+    uint32_t redMask = fields[15];
+    uint32_t greenMask = fields[16];
+    uint32_t blueMask = fields[17];
+    uint32_t ncolors = fields[19];
+    NSUInteger pixelOffset = (NSUInteger)headerSize + ((NSUInteger)ncolors * 12U);
+
+    if (width == 0 || height == 0 || width > 4096 || height > 4096) return nil;
+    if (bitsPerPixel != 16 && bitsPerPixel != 24 && bitsPerPixel != 32) return nil;
+    if (pixelOffset >= length) return nil;
+
+    NSUInteger bytesPerPixel = (bitsPerPixel + 7U) / 8U;
+    NSUInteger needed = pixelOffset + ((NSUInteger)height * (NSUInteger)bytesPerLine);
+    if (needed > length || bytesPerLine < (NSUInteger)width * bytesPerPixel) return nil;
+
+    NSBitmapImageRep *rep = [[NSBitmapImageRep alloc]
+        initWithBitmapDataPlanes:NULL
+                      pixelsWide:(NSInteger)width
+                      pixelsHigh:(NSInteger)height
+                   bitsPerSample:8
+                 samplesPerPixel:4
+                        hasAlpha:YES
+                        isPlanar:NO
+                  colorSpaceName:NSDeviceRGBColorSpace
+                     bytesPerRow:(NSInteger)width * 4
+                    bitsPerPixel:32];
+    if (!rep) return nil;
+
+    uint8_t *dst = [rep bitmapData];
+    BOOL msbFirst = (byteOrder != 0);
+    for (uint32_t y = 0; y < height; ++y) {
+        const uint8_t *srcRow = bytes + pixelOffset + ((NSUInteger)y * bytesPerLine);
+        uint8_t *dstRow = dst + ((NSUInteger)y * width * 4U);
+        for (uint32_t x = 0; x < width; ++x) {
+            const uint8_t *src = srcRow + ((NSUInteger)x * bytesPerPixel);
+            uint32_t pixel = 0;
+            if (bitsPerPixel == 16) {
+                pixel = ReadPixel16(src, msbFirst);
+            } else if (bitsPerPixel == 24) {
+                pixel = msbFirst
+                    ? (((uint32_t)src[0] << 16) | ((uint32_t)src[1] << 8) | src[2])
+                    : (((uint32_t)src[2] << 16) | ((uint32_t)src[1] << 8) | src[0]);
+            } else {
+                pixel = ReadPixel32(src, msbFirst);
+            }
+            uint8_t *d = dstRow + ((NSUInteger)x * 4U);
+            d[0] = XWDChannel(pixel, redMask);
+            d[1] = XWDChannel(pixel, greenMask);
+            d[2] = XWDChannel(pixel, blueMask);
+            d[3] = 255;
+        }
+    }
+
+    NSImage *img = [[NSImage alloc] initWithSize:NSMakeSize(width, height)];
+    [img addRepresentation:rep];
+    if (imageSize) *imageSize = NSMakeSize(width, height);
+    return img;
+}
+
+static BOOL AppendInputCommand(NSString *bottle, NSString *script, NSString **errorText) {
+    NSString *runtime = [BottlePathForBottle(bottle) stringByAppendingPathComponent:@"runtime"];
+    NSString *queue = [runtime stringByAppendingPathComponent:@"input.queue"];
+    NSString *line = [[script stringByReplacingOccurrencesOfString:@"\n" withString:@" "]
+        stringByAppendingString:@"\n"];
+    NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data) return NO;
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:queue]) {
+        [fm createFileAtPath:queue contents:nil attributes:nil];
+    }
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:queue];
+    if (!handle) {
+        if (errorText) *errorText = @"could not open HaSe input queue";
+        return NO;
+    }
+    @try {
+        [handle seekToEndOfFile];
+        [handle writeData:data];
+        [handle closeFile];
+        return YES;
+    } @catch (NSException *e) {
+        if (errorText) *errorText = e.reason ?: @"failed to write HaSe input queue";
+        return NO;
+    }
 }
 
 static CGFloat ClampCGFloat(CGFloat value, CGFloat minValue, CGFloat maxValue) {
@@ -219,6 +344,7 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 @property(nonatomic) BOOL refreshQueued;
 @property(nonatomic) BOOL sizedFromGuest;
 @property(nonatomic) BOOL haveSeenWindow;
+@property(nonatomic) NSInteger refreshCounter;
 - (void)handleMouseEvent:(NSEvent *)event button:(NSInteger)button pressed:(BOOL)pressed;
 - (void)handleMouseMoveEvent:(NSEvent *)event;
 - (void)handleScrollEvent:(NSEvent *)event;
@@ -306,7 +432,10 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     [self createHostWindow:NSMakeSize(720, 420)];
     [self refreshNow];
-    self.timer = [NSTimer scheduledTimerWithTimeInterval:0.25
+    const char *intervalEnv = getenv("HASE_HOST_REFRESH_INTERVAL");
+    NSTimeInterval interval = intervalEnv && *intervalEnv ? atof(intervalEnv) : (1.0 / 60.0);
+    if (interval < 0.005) interval = 0.005;
+    self.timer = [NSTimer scheduledTimerWithTimeInterval:interval
                                                  repeats:YES
                                                    block:^(NSTimer *t) {
         (void)t;
@@ -398,33 +527,31 @@ static NSString *KeyNameForEvent(NSEvent *event) {
     if (bounds.size.width <= 0 || bounds.size.height <= 0) return NO;
 
     NSPoint local = [self.imageView convertPoint:event.locationInWindow fromView:nil];
-    CGFloat imageWidth = self.guestImageSize.width > 0 ? self.guestImageSize.width : self.selectedWindow.width;
-    CGFloat imageHeight = self.guestImageSize.height > 0 ? self.guestImageSize.height : self.selectedWindow.height;
-    if (imageWidth <= 0 || imageHeight <= 0) return NO;
 
+    /* Calculate relative coordinates within the window (0,0 is top-left) */
     CGFloat unitX = ClampCGFloat(local.x / bounds.size.width, 0.0, 1.0);
     CGFloat unitY = ClampCGFloat((bounds.size.height - local.y) / bounds.size.height, 0.0, 1.0);
-    NSInteger linuxX = self.selectedWindow.x + (NSInteger)llround(unitX * (imageWidth - 1.0));
-    NSInteger linuxY = self.selectedWindow.y + (NSInteger)llround(unitY * (imageHeight - 1.0));
-    if (outX) *outX = linuxX;
-    if (outY) *outY = linuxY;
+
+    CGFloat w = self.guestImageSize.width > 0 ? self.guestImageSize.width : self.selectedWindow.width;
+    CGFloat h = self.guestImageSize.height > 0 ? self.guestImageSize.height : self.selectedWindow.height;
+
+    if (outX) *outX = (NSInteger)llround(unitX * (w - 1.0));
+    if (outY) *outY = (NSInteger)llround(unitY * (h - 1.0));
     return YES;
 }
 
 - (void)sendInputScript:(NSString *)script {
     NSString *bottle = self.bottle;
     NSString *guestScript = [NSString stringWithFormat:
-        @"/mnt/hase/runtime/start-session.sh >/dev/null; "
-         "export DISPLAY=\"${HASE_DISPLAY:-:99}\"; "
-         "if ! command -v xdotool >/dev/null 2>&1; then "
-         "  echo 'xdotool is not installed in the HaSe VM' >&2; exit 2; "
-         "fi; %@",
+        @"export DISPLAY=\"${HASE_DISPLAY:-:99}\"; %@",
         script];
 
     dispatch_async(self.inputQueue, ^{
         int rc = 0;
         NSString *errorText = nil;
-        RunShellData(LimactlShellScript(VMNameForBottle(bottle), guestScript), &rc, &errorText);
+        if (!AppendInputCommand(bottle, script, &errorText)) {
+            RunShellData(LimactlShellScript(VMNameForBottle(bottle), guestScript), &rc, &errorText);
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             if (rc != 0 && [errorText length] > 0) {
                 [self setStatus:errorText visible:YES];
@@ -435,24 +562,19 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 }
 
 - (NSString *)focusScriptForWindowID:(NSString *)windowID {
-    return [NSString stringWithFormat:
-        @"WID=%@; "
-         "xdotool windowactivate --sync \"$WID\" >/dev/null 2>&1 || "
-         "xdotool windowfocus \"$WID\" >/dev/null 2>&1 || true; ",
-        ShellQuote(windowID)];
+    return @"";
 }
 
 - (void)handleMouseMoveEvent:(NSEvent *)event {
-    if (event.timestamp - self.lastMouseMoveSent < 0.08) return;
+    if (event.timestamp - self.lastMouseMoveSent < 0.016) return;
     self.lastMouseMoveSent = event.timestamp;
 
     NSInteger x = 0, y = 0;
     if (![self linuxPointForEvent:event x:&x y:&y]) return;
 
-    NSString *windowID = self.selectedWindow.windowID;
     NSString *script = [NSString stringWithFormat:
-        @"%@ xdotool mousemove --sync %ld %ld",
-        [self focusScriptForWindowID:windowID], (long)x, (long)y];
+        @"xdotool mousemove %ld %ld",
+        (long)x, (long)y];
     [self sendInputScript:script];
 }
 
@@ -460,11 +582,10 @@ static NSString *KeyNameForEvent(NSEvent *event) {
     NSInteger x = 0, y = 0;
     if (![self linuxPointForEvent:event x:&x y:&y]) return;
 
-    NSString *windowID = self.selectedWindow.windowID;
     NSString *verb = pressed ? @"mousedown" : @"mouseup";
     NSString *script = [NSString stringWithFormat:
-        @"%@ xdotool mousemove --sync %ld %ld %@ %ld",
-        [self focusScriptForWindowID:windowID], (long)x, (long)y, verb, (long)button];
+        @"xdotool mousemove %ld %ld %@ %ld",
+        (long)x, (long)y, verb, (long)button];
     [self sendInputScript:script];
 }
 
@@ -530,44 +651,90 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 
     NSString *bottle = self.bottle;
     NSString *explicitID = self.explicitWindowID;
+    /* Re-use cached window when possible; only re-list every 10 refreshes or
+       when we have no window yet. */
+    HaSeLinuxWindow *cachedWindow = self.selectedWindow;
+    self.refreshCounter++;
+    BOOL needsList = (!cachedWindow || self.refreshCounter % 10 == 0 ||
+                      [explicitID length] > 0);
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSString *listError = nil;
-        NSArray<HaSeLinuxWindow *> *windows = FetchLinuxWindows(bottle, &listError);
-        HaSeLinuxWindow *target = nil;
-        BOOL explicitMissing = NO;
-        if ([explicitID length] > 0) {
-            for (HaSeLinuxWindow *w in windows) {
-                if ([w.windowID caseInsensitiveCompare:explicitID] == NSOrderedSame) {
-                    target = w;
-                    break;
+        @autoreleasepool {
+        HaSeLinuxWindow *target = cachedWindow;
+
+        if (needsList) {
+            NSString *listError = nil;
+            NSArray<HaSeLinuxWindow *> *windows = FetchLinuxWindows(bottle, &listError);
+            BOOL explicitMissing = NO;
+            if ([explicitID length] > 0) {
+                target = nil;
+                for (HaSeLinuxWindow *w in windows) {
+                    if ([w.windowID caseInsensitiveCompare:explicitID] == NSOrderedSame) {
+                        target = w;
+                        break;
+                    }
                 }
+                if (!target) {
+                    explicitMissing = YES;
+                    target = [[HaSeLinuxWindow alloc] init];
+                    target.windowID = explicitID;
+                    target.title = explicitID;
+                }
+            } else {
+                target = [windows count] > 0 ? windows[0] : nil;
             }
-            if (!target) {
-                explicitMissing = YES;
-                target = [[HaSeLinuxWindow alloc] init];
-                target.windowID = explicitID;
-                target.title = explicitID;
+
+            if (!target || (explicitMissing && self.haveSeenWindow)) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self finishRefresh];
+                    if (explicitMissing && self.haveSeenWindow) {
+                        [self.window close];
+                    } else {
+                        [self setStatus:listError ?: @"No Linux windows found on display :99." visible:YES];
+                    }
+                });
+                return;
             }
-        } else {
-            target = [windows count] > 0 ? windows[0] : nil;
         }
 
-        if (!target || (explicitMissing && self.haveSeenWindow)) {
+        if (!target) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self finishRefresh];
-                if (explicitMissing && self.haveSeenWindow) {
-                    [self.window close];
-                } else {
-                    [self setStatus:listError ?: @"No Linux windows found on display :99." visible:YES];
-                }
+                [self setStatus:@"No Linux windows found on display :99." visible:YES];
             });
             return;
         }
 
         int rc = 0;
         NSString *captureError = nil;
-        NSData *png = CaptureWindowPNG(bottle, target.windowID, &rc, &captureError);
+        NSImage *img = nil;
+        NSSize decodedSize = NSZeroSize;
+
+        /* Try to read from shared filesystem first (zero-SSH) */
+        NSString *bottlePath = BottlePathForBottle(bottle);
+        NSString *xwdPath = [bottlePath stringByAppendingPathComponent:@"runtime/frame.xwd"];
+        NSString *bmpPath = [bottlePath stringByAppendingPathComponent:@"runtime/frame.bmp"];
+
+        NSData *xwd = [NSData dataWithContentsOfFile:xwdPath options:NSDataReadingMappedIfSafe error:nil];
+        img = ImageFromXWDData(xwd, &decodedSize);
+        if (!img) {
+            NSData *bmp = [NSData dataWithContentsOfFile:bmpPath options:NSDataReadingMappedIfSafe error:nil];
+            if (HasBMPSignature(bmp)) {
+                NSBitmapImageRep *rep = [NSBitmapImageRep imageRepWithData:bmp];
+                img = [[NSImage alloc] initWithData:bmp];
+                if (rep) decodedSize = NSMakeSize(rep.pixelsWide, rep.pixelsHigh);
+            }
+        }
+
+        if (!img) {
+            /* Fallback to SSH capture */
+            NSData *bmp = CaptureWindowBMP(bottle, &rc, &captureError);
+            if (HasBMPSignature(bmp)) {
+                NSBitmapImageRep *rep = [NSBitmapImageRep imageRepWithData:bmp];
+                img = [[NSImage alloc] initWithData:bmp];
+                if (rep) decodedSize = NSMakeSize(rep.pixelsWide, rep.pixelsHigh);
+            }
+        }
 
         dispatch_async(dispatch_get_main_queue(), ^{
             [self finishRefresh];
@@ -576,20 +743,14 @@ static NSString *KeyNameForEvent(NSEvent *event) {
                                  self.bottle,
                                  [target.title length] ? target.title : target.windowID];
 
-            if (rc != 0 || !HasPNGSignature(png)) {
-                NSString *err = [captureError length] ? captureError : @"Window capture failed.";
+            if (rc != 0 || !img) {
+                NSString *err = [captureError length] ? captureError : @"Waiting for Steam to initialize...";
                 [self setStatus:err visible:YES];
                 return;
             }
 
-            NSBitmapImageRep *rep = [NSBitmapImageRep imageRepWithData:png];
-            NSImage *img = [[NSImage alloc] initWithData:png];
-            if (!img) {
-                [self setStatus:@"Captured data was not a readable PNG image." visible:YES];
-                return;
-            }
-            if (rep) {
-                img.size = NSMakeSize(rep.pixelsWide, rep.pixelsHigh);
+            if (decodedSize.width > 0 && decodedSize.height > 0) {
+                img.size = decodedSize;
                 self.guestImageSize = img.size;
                 if (!self.sizedFromGuest) {
                     [self resizeForGuestImage:img.size];
@@ -600,6 +761,7 @@ static NSString *KeyNameForEvent(NSEvent *event) {
             self.haveSeenWindow = YES;
             [self setStatus:@"" visible:NO];
         });
+        }
     });
 }
 

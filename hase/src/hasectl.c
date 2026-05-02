@@ -46,10 +46,9 @@ static void usage(FILE *out) {
         "  hasectl refresh-runtime <bottle> [--root DIR]\n"
         "  hasectl install-icd <bottle> [--root DIR]\n"
         "  hasectl install-fex <bottle> [--root DIR]\n"
-        "  hasectl prepare-dxvk-smoke <bottle> [--root DIR]\n"
+        "  hasectl install-steam <bottle> [--root DIR]\n"
         "  hasectl run-clear-demo <bottle> [--root DIR]\n"
         "  hasectl run-triangle-demo <bottle> [--root DIR]\n"
-        "  hasectl run-dxvk-smoke <bottle> [--root DIR]\n"
         "  hasectl paths <bottle> [--root DIR]\n"
         "\n"
         "Environment:\n"
@@ -295,17 +294,25 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "#!/bin/sh\n"
         "set -eu\n"
         "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
-        "export CHEESEBRIDGE_HOST=\"${CHEESEBRIDGE_HOST:-tcp:host.lima.internal:43210}\"\n"
+        "GEOMETRY=\"${HASE_GEOMETRY:-960x540x16}\"\n"
         "mkdir -p /tmp/hase\n"
-        "if ! pgrep -f \"Xvfb ${DISPLAY}\" >/dev/null 2>&1; then\n"
-        "  Xvfb \"${DISPLAY}\" -screen 0 \"${HASE_GEOMETRY:-1920x1080x24}\" -nolisten tcp >/tmp/hase/xvfb.log 2>&1 &\n"
+        "if [ -f /tmp/hase/geometry ] && [ \"$(cat /tmp/hase/geometry)\" != \"$GEOMETRY\" ]; then\n"
+        "  pkill -f \"Xvfb ${DISPLAY}\" >/dev/null 2>&1 || true\n"
         "fi\n"
-        "sleep 1\n"
+        "if [ ! -f /tmp/hase/geometry ] && pgrep -f \"Xvfb ${DISPLAY}\" >/dev/null; then\n"
+        "  pkill -f \"Xvfb ${DISPLAY}\" >/dev/null 2>&1 || true\n"
+        "fi\n"
+        "if ! pgrep -f \"Xvfb ${DISPLAY}\" >/dev/null; then\n"
+        "  Xvfb \"${DISPLAY}\" -screen 0 \"$GEOMETRY\" -nolisten tcp >/tmp/hase/xvfb.log 2>&1 &\n"
+        "  printf '%s\\n' \"$GEOMETRY\" >/tmp/hase/geometry\n"
+        "  sleep 1\n"
+        "fi\n"
         "if command -v xsetroot >/dev/null 2>&1; then\n"
         "  xsetroot -display \"${DISPLAY}\" -solid black || true\n"
         "fi\n"
-        "if ! DISPLAY=\"${DISPLAY}\" wmctrl -m >/dev/null 2>&1; then\n"
-        "  DISPLAY=\"${DISPLAY}\" openbox >/tmp/hase/openbox.log 2>&1 &\n"
+        "if ! pgrep -x \"matchbox-window-manager\" >/dev/null; then\n"
+        "  pkill -x \"matchbox-window-manager\" >/dev/null 2>&1 || true\n"
+        "  DISPLAY=\"${DISPLAY}\" matchbox-window-manager -use_titlebar no >/tmp/hase/wm.log 2>&1 &\n"
         "fi\n"
         "i=0\n"
         "while ! DISPLAY=\"${DISPLAY}\" wmctrl -m >/dev/null 2>&1; do\n"
@@ -322,9 +329,13 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "#!/bin/sh\n"
         "set -eu\n"
         "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
-        "pkill -f \"openbox\" >/dev/null 2>&1 || true\n"
+        "pkill -f \"matchbox-window-manager\" >/dev/null 2>&1 || true\n"
         "pkill -f \"Xvfb ${DISPLAY}\" >/dev/null 2>&1 || true\n"
-        "rm -rf /tmp/hase\n"
+        "pkill -f \"capture-daemon.sh\" >/dev/null 2>&1 || true\n"
+        "pkill -f \"input-daemon.sh\" >/dev/null 2>&1 || true\n"
+        "pkill -f \"steam\" >/dev/null 2>&1 || true\n"
+        "rm -rf /tmp/hase /mnt/hase/runtime/frame.bmp /mnt/hase/runtime/frame.xwd \\\n"
+        "  /mnt/hase/runtime/input.queue /mnt/hase/runtime/input.processing\n"
         "printf 'HaSe hidden X11 session stopped\\n'\n",
         0755);
 
@@ -350,14 +361,57 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "  echo 'usage: capture-window-png.sh WINDOW_ID' >&2\n"
         "  exit 2\n"
         "fi\n"
+        "WINDOW_ID=\"$1\"\n"
         "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
-        "for tool in xwd xwdtopnm pnmtopng; do\n"
-        "  if ! command -v \"$tool\" >/dev/null 2>&1; then\n"
-        "    echo \"$tool is not installed; install x11-apps and netpbm in the HaSe VM\" >&2\n"
-        "    exit 2\n"
+        "xwd -silent -id \"$WINDOW_ID\" | xwdtopnm 2>/dev/null | pnmtopng -force 2>/dev/null\n",
+        0755);
+
+    path_join(path, sizeof path, runtime, "capture-daemon.sh");
+    write_file(path,
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
+        "FORMAT=\"${HASE_CAPTURE_FORMAT:-xwd}\"\n"
+        "DELAY=\"${HASE_CAPTURE_DELAY:-0.016}\"\n"
+        "BASE=\"/mnt/hase/runtime/frame\"\n"
+        "mkdir -p /mnt/hase/runtime\n"
+        "rm -f \"$BASE.xwd\" \"$BASE.bmp\" \"$BASE.tmp.xwd\" \"$BASE.tmp.bmp\"\n"
+        "while true; do\n"
+        "  if [ \"$FORMAT\" = bmp ]; then\n"
+        "    DISPLAY=\"$DISPLAY\" xwd -silent -root | xwdtopnm 2>/dev/null | ppmtobmp > \"$BASE.tmp.bmp\" 2>/dev/null || true\n"
+        "    if [ -s \"$BASE.tmp.bmp\" ]; then mv \"$BASE.tmp.bmp\" \"$BASE.bmp\"; else rm -f \"$BASE.tmp.bmp\"; fi\n"
+        "  else\n"
+        "    DISPLAY=\"$DISPLAY\" xwd -silent -root -out \"$BASE.tmp.xwd\" >/dev/null 2>&1 || true\n"
+        "    if [ -s \"$BASE.tmp.xwd\" ]; then mv \"$BASE.tmp.xwd\" \"$BASE.xwd\"; else rm -f \"$BASE.tmp.xwd\"; fi\n"
         "  fi\n"
-        "done\n"
-        "DISPLAY=\"${DISPLAY}\" xwd -silent -id \"$1\" | xwdtopnm 2>/dev/null | pnmtopng -force\n",
+        "  sleep \"$DELAY\"\n"
+        "done\n",
+        0755);
+
+    path_join(path, sizeof path, runtime, "input-daemon.sh");
+    write_file(path,
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
+        "QUEUE=/mnt/hase/runtime/input.queue\n"
+        "WORK=/mnt/hase/runtime/input.processing\n"
+        "DELAY=\"${HASE_INPUT_DELAY:-0.004}\"\n"
+        "mkdir -p /mnt/hase/runtime\n"
+        "touch \"$QUEUE\"\n"
+        "while true; do\n"
+        "  if [ -s \"$QUEUE\" ]; then\n"
+        "    cp \"$QUEUE\" \"$WORK\" 2>/dev/null || true\n"
+        "    : > \"$QUEUE\"\n"
+        "    if [ -s \"$WORK\" ]; then\n"
+        "      while IFS= read -r cmd; do\n"
+        "        [ -n \"$cmd\" ] || continue\n"
+        "        DISPLAY=\"$DISPLAY\" sh -lc \"$cmd\" >/tmp/hase/input-daemon.log 2>&1 || true\n"
+        "      done < \"$WORK\"\n"
+        "    fi\n"
+        "    rm -f \"$WORK\"\n"
+        "  fi\n"
+        "  sleep \"$DELAY\"\n"
+        "done\n",
         0755);
 
     path_join(path, sizeof path, runtime, "install-icd.sh");
@@ -758,116 +812,75 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "printf '>> Logs are in %s if anything needs inspection.\\n' \"$LOGDIR\"\n",
         0755);
 
-    path_join(path, sizeof path, runtime, "prepare-dxvk-smoke.sh");
+    path_join(path, sizeof path, runtime, "install-steam.sh");
     write_file(path,
         "#!/bin/sh\n"
-        "# Prepare the Phase 5 Wine + DXVK smoke prefix. The test executable is\n"
-        "# d3d11-smoke.exe, built by hasectl install-icd from demo/d3d11_smoke.c.\n"
+        "# Install and configure Linux Steam for the HaSe VM.\n"
         "set -eu\n"
         "/mnt/hase/runtime/start-session.sh >/dev/null\n"
         "/mnt/hase/runtime/install-fex.sh\n"
         ". /mnt/hase/fex/env.sh\n"
-        "DST=/mnt/hase/vulkan/icd.d\n"
-        "PREFIX=\"${HASE_DXVK_SMOKE_PREFIX:-/mnt/hase/wine-prefixes/dxvk-smoke}\"\n"
-        "DXVK_CACHE=\"/tmp/hase-dxvk\"\n"
-        "EXE=\"$DST/d3d11-smoke.exe\"\n"
-        "if [ ! -f \"$EXE\" ]; then\n"
-        "  echo 'd3d11-smoke.exe missing - run hasectl install-icd <bottle> first' >&2\n"
-        "  exit 1\n"
-        "fi\n"
-        "mkdir -p \"$PREFIX\" /mnt/hase/proton\n"
-        "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
-        "export WINEPREFIX=\"$PREFIX\"\n"
-        "export WINEARCH=win64\n"
-        "export VK_ICD_FILENAMES=\"${VK_ICD_FILENAMES:-$DST/cheesebridge_icd.json}\"\n"
-        "export CHEESEBRIDGE_ICD_PATH=\"$DST/libCheeseBridge_icd.so\"\n"
-        "export CHEESEBRIDGE_STUB=0\n"
-        "export CHEESEBRIDGE_HOST=\"${CHEESEBRIDGE_HOST:-tcp:host.lima.internal:43210}\"\n"
-        "run_x86() {\n"
-        "  FEXBash -c \"$*\"\n"
+        "LOGDIR=/tmp/hase-steam-install\n"
+        "mkdir -p \"$LOGDIR\"\n"
+        "banner() {\n"
+        "  printf '\\n'\n"
+        "  printf '========================================\\n'\n"
+        "  printf ' HaSe Steam Integration\\n'\n"
+        "  printf ' Linux Steam Automated Setup\\n'\n"
+        "  printf '========================================\\n'\n"
         "}\n"
-        "if ! run_x86 'command -v wine64 >/dev/null 2>&1 || command -v wine >/dev/null 2>&1'; then\n"
-        "  echo 'x86_64 Wine is not available inside the FEX environment.' >&2\n"
-        "  echo 'FEX is installed; add an x86_64 Wine/Proton runtime next for this smoke test.' >&2\n"
-        "  exit 2\n"
-        "fi\n"
-        "run_x86 'wineboot -u'\n"
-        "install_dxvk_dir() {\n"
-        "  DXVK_DIR=\"$1\"\n"
-        "  if [ ! -f \"$DXVK_DIR/x64/d3d11.dll\" ] || [ ! -f \"$DXVK_DIR/x64/dxgi.dll\" ]; then\n"
-        "    return 1\n"
+        "note() {\n"
+        "  printf '>> %s\\n' \"$1\"\n"
+        "}\n"
+        "run_step() {\n"
+        "  label=\"$1\"; log=\"$2\"; shift 2\n"
+        "  status=\"$LOGDIR/step-$$.status\"\n"
+        "  rm -f \"$status\"\n"
+        "  printf '  %-54s ' \"$label\"\n"
+        "  ( set +e; \"$@\" >\"$log\" 2>&1; rc=$?; printf '%s\\n' \"$rc\" >\"$status\" ) &\n"
+        "  pid=$!\n"
+        "  tick=0\n"
+        "  while [ ! -s \"$status\" ]; do\n"
+        "    tick=$((tick + 1))\n"
+        "    case $((tick % 4)) in 0) mark='|' ;; 1) mark='/' ;; 2) mark='-' ;; *) mark='+' ;; esac\n"
+        "    printf '\\r  %-54s [%s]' \"$label\" \"$mark\"\n"
+        "    sleep 0.2\n"
+        "  done\n"
+        "  wait \"$pid\" 2>/dev/null || true\n"
+        "  rc=\"$(cat \"$status\")\"; rm -f \"$status\"\n"
+        "  if [ \"$rc\" = 0 ]; then printf '\\r  %-54s [ok]\\n' \"$label\"; return 0; fi\n"
+        "  printf '\\r  %-54s [failed]\\n' \"$label\" >&2\n"
+        "  printf '  log: %s\\n' \"$log\" >&2\n"
+        "  tail -n 40 \"$log\" >&2 || true\n"
+        "  return \"$rc\"\n"
+        "}\n"
+        "must_step() {\n"
+        "  run_step \"$@\" || exit \"$?\"\n"
+        "}\n"
+        "banner\n"
+        "  if ! command -v Xvfb >/dev/null 2>&1 || ! command -v matchbox-window-manager >/dev/null 2>&1 || ! command -v xdotool >/dev/null 2>&1; then\n"
+        "    must_step 'Installing UI dependencies' \"$LOGDIR/ui-deps.log\" \\\n"
+        "      sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb matchbox-window-manager x11-apps xdotool x11-utils wmctrl netpbm\n"
+        "    /mnt/hase/runtime/start-session.sh >/dev/null\n"
         "  fi\n"
-        "  mkdir -p \"$PREFIX/drive_c/windows/system32\"\n"
-        "  cp \"$DXVK_DIR/x64/d3d11.dll\" \"$DXVK_DIR/x64/dxgi.dll\" \\\n"
-        "    \"$PREFIX/drive_c/windows/system32/\"\n"
-        "  run_x86 'wine reg add \"HKCU\\\\Software\\\\Wine\\\\DllOverrides\" /v d3d11 /d native,builtin /f >/dev/null'\n"
-        "  run_x86 'wine reg add \"HKCU\\\\Software\\\\Wine\\\\DllOverrides\" /v dxgi /d native,builtin /f >/dev/null'\n"
-        "  return 0\n"
-        "}\n"
-        "if [ -n \"${HASE_DXVK_DIR:-}\" ] && install_dxvk_dir \"$HASE_DXVK_DIR\"; then\n"
-        "  echo \"DXVK installed from $HASE_DXVK_DIR\"\n"
+        "  note 'Configuring kernel for Steam sandbox...'\n"
+        "  sudo sysctl -w kernel.unprivileged_userns_clone=1 >/dev/null 2>&1 || true\n"
+        "  sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 >/dev/null 2>&1 || true\n"
+        "  note 'Configuring X11 permissions...'\n"
+        "  export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
+        "  xhost +local: >/dev/null 2>&1 || true\n"
+        "if [ ! -f /mnt/hase/steam-env/usr/bin/steam ]; then\n"
+        "  note 'Downloading Linux Steam Bootstrapper...'\n"
+        "  must_step 'Fetching Steam .deb' \"$LOGDIR/steam-download.log\" \\\n"
+        "    curl -fL --retry 3 -o \"/tmp/steam.deb\" \\\n"
+        "    \"https://repo.steampowered.com/steam/archive/precise/steam_latest.deb\"\n"
+        "  must_step 'Extracting Steam' \"$LOGDIR/steam-extract.log\" \\\n"
+        "    sh -c \"mkdir -p /tmp/steam-deb && dpkg -x /tmp/steam.deb /tmp/steam-deb && cp -r /tmp/steam-deb/usr /mnt/hase/steam-env/\"\n"
+        "  rm -rf /tmp/steam.deb /tmp/steam-deb\n"
         "else\n"
-        "  TARBALL=\"$(find /mnt/hase/proton -maxdepth 1 -name 'dxvk-*.tar.*' -print 2>/dev/null | head -n 1)\"\n"
-        "  if [ -n \"$TARBALL\" ]; then\n"
-        "    rm -rf \"$DXVK_CACHE\"\n"
-        "    mkdir -p \"$DXVK_CACHE\"\n"
-        "    tar -xf \"$TARBALL\" -C \"$DXVK_CACHE\"\n"
-        "    DXVK_DIR=\"$(find \"$DXVK_CACHE\" -maxdepth 1 -type d -name 'dxvk-*' -print | head -n 1)\"\n"
-        "    install_dxvk_dir \"$DXVK_DIR\"\n"
-        "    echo \"DXVK installed from $TARBALL\"\n"
-        "  elif run_x86 'command -v winetricks >/dev/null 2>&1'; then\n"
-        "    echo 'installing DXVK with winetricks...' >&2\n"
-        "    run_x86 'winetricks -q dxvk'\n"
-        "  else\n"
-        "    echo 'DXVK is not installed.' >&2\n"
-        "    echo 'Place dxvk-*.tar.gz in /mnt/hase/proton, set HASE_DXVK_DIR, or install winetricks.' >&2\n"
-        "    exit 3\n"
-        "  fi\n"
+        "  note 'Steam environment already present.'\n"
         "fi\n"
-        "echo \"Phase 5 Wine/DXVK smoke prefix ready: $PREFIX\"\n",
-        0755);
-
-    path_join(path, sizeof path, runtime, "run-dxvk-smoke.sh");
-    write_file(path,
-        "#!/bin/sh\n"
-        "# Run the Phase 5 D3D11 -> Wine -> DXVK -> CheeseBridge smoke test.\n"
-        "set -eu\n"
-        "/mnt/hase/runtime/start-session.sh >/dev/null\n"
-        "/mnt/hase/runtime/install-fex.sh\n"
-        ". /mnt/hase/fex/env.sh\n"
-        "DST=/mnt/hase/vulkan/icd.d\n"
-        "PREFIX=\"${HASE_DXVK_SMOKE_PREFIX:-/mnt/hase/wine-prefixes/dxvk-smoke}\"\n"
-        "EXE=\"${HASE_DXVK_SMOKE_EXE:-$DST/d3d11-smoke.exe}\"\n"
-        "if [ ! -f \"$EXE\" ]; then\n"
-        "  echo 'd3d11-smoke.exe missing - run hasectl install-icd <bottle> first' >&2\n"
-        "  exit 1\n"
-        "fi\n"
-        "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
-        "export WINEPREFIX=\"$PREFIX\"\n"
-        "export WINEARCH=win64\n"
-        "export WINEDEBUG=\"${WINEDEBUG:--all}\"\n"
-        "export VK_ICD_FILENAMES=\"${VK_ICD_FILENAMES:-$DST/cheesebridge_icd.json}\"\n"
-        "export CHEESEBRIDGE_ICD_PATH=\"$DST/libCheeseBridge_icd.so\"\n"
-        "export CHEESEBRIDGE_STUB=0\n"
-        "export CHEESEBRIDGE_HOST=\"${CHEESEBRIDGE_HOST:-tcp:host.lima.internal:43210}\"\n"
-        "export HASE_DXVK_SMOKE_EXE=\"$EXE\"\n"
-        "exec FEXBash -c 'if command -v wine64 >/dev/null 2>&1; then wine64 \"$HASE_DXVK_SMOKE_EXE\"; elif command -v wine >/dev/null 2>&1; then wine \"$HASE_DXVK_SMOKE_EXE\"; else echo \"x86_64 Wine is not available inside the FEX environment; run hasectl prepare-dxvk-smoke <bottle> after adding Wine/Proton\" >&2; exit 2; fi'\n"
-        "exit 2\n",
-        0755);
-
-    path_join(path, sizeof path, runtime, "launch-test-window.sh");
-    write_file(path,
-        "#!/bin/sh\n"
-        "set -eu\n"
-        "/mnt/hase/runtime/start-session.sh >/dev/null\n"
-        "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
-        "if ! command -v xmessage >/dev/null 2>&1; then\n"
-        "  echo 'xmessage is not installed; install x11-utils in the HaSe VM' >&2\n"
-        "  exit 2\n"
-        "fi\n"
-        "nohup xmessage -name HaSeTestWindow -title 'HaSe Test Window' -center \\\n"
-        "  'HaSe guest window captured by macOS host' >/tmp/hase/test-window.log 2>&1 &\n"
-        "printf 'HaSe test window launched in hidden X11 session\\n'\n",
+        "note 'Steam ready to launch via hasectl steam.'\n",
         0755);
 
     path_join(path, sizeof path, runtime, "launch-steam.sh");
@@ -875,18 +888,42 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "#!/bin/sh\n"
         "set -eu\n"
         "/mnt/hase/runtime/start-session.sh\n"
+        "/mnt/hase/runtime/install-steam.sh\n"
+        ". /mnt/hase/fex/env.sh\n"
         "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
         "export CHEESEBRIDGE_HOST=\"${CHEESEBRIDGE_HOST:-tcp:host.lima.internal:43210}\"\n"
-        "export VK_ICD_FILENAMES=\"${VK_ICD_FILENAMES:-/mnt/hase/vulkan/icd.d/cheesebridge_icd.json}\"\n"
-        "if command -v steam >/dev/null 2>&1; then\n"
-        "  nohup steam \"$@\" >/tmp/hase/steam.log 2>&1 &\n"
-        "  echo 'Steam launched in hidden HaSe session'\n"
+        "# Use Mesa Lavapipe (software Vulkan) for Steam UI rendering.\n"
+        "# CheeseBridge ICD does not expose VK_KHR_xlib_surface, which Steam needs.\n"
+        "# Games will use CheeseBridge via Proton's own VK_ICD_FILENAMES override.\n"
+        "export VK_ICD_FILENAMES=\"/usr/share/vulkan/icd.d/lvp_icd.json\"\n"
+        "export LIBGL_ALWAYS_SOFTWARE=1\n"
+        "export MESA_GL_VERSION_OVERRIDE=4.3\n"
+        "export CHEESEBRIDGE_HOST_ICD=\"/mnt/hase/vulkan/icd.d/cheesebridge_icd.json\"\n"
+        "export CHEESEBRIDGE_ICD_PATH=\"/mnt/hase/vulkan/icd.d/libCheeseBridge_icd.so\"\n"
+        "if [ -f /mnt/hase/steam-env/usr/bin/steam ]; then\n"
+        "  if pgrep -f \"steam-env/usr/bin\" >/dev/null; then\n"
+        "    echo \"Steam is already running (PID: $(pgrep -f \"steam-env/usr/bin\" | head -n1 | xargs)).\"\n"
+        "  else\n"
+        "    echo 'Launching Steam in hidden HaSe session...'\n"
+        "    nohup FEXBash -c \"STEAM_RUNTIME=1 /mnt/hase/steam-env/usr/bin/steam -silent\" \"$@\" >/tmp/steam.log 2>&1 &\n"
+        "  fi\n"
+        "  # Experimental fast path: raw XWD frames and shared-file input queue.\n"
+        "  pkill -f capture-daemon.sh >/dev/null 2>&1 || true\n"
+        "  pkill -f input-daemon.sh >/dev/null 2>&1 || true\n"
+        "  HASE_CAPTURE_FORMAT=\"${HASE_CAPTURE_FORMAT:-xwd}\" \\\n"
+        "  HASE_CAPTURE_DELAY=\"${HASE_CAPTURE_DELAY:-0.016}\" \\\n"
+        "    nohup /mnt/hase/runtime/capture-daemon.sh >/tmp/hase/capture.log 2>&1 &\n"
+        "  HASE_INPUT_DELAY=\"${HASE_INPUT_DELAY:-0.004}\" \\\n"
+        "    nohup /mnt/hase/runtime/input-daemon.sh >/tmp/hase/input.log 2>&1 &\n"
+        "  echo 'Tailing logs for 15s (Ctrl+C to stop)...'\n"
+        "  timeout 15 tail -f /tmp/steam.log 2>/dev/null || true\n"
+        "  echo '\\nCheck /tmp/steam.log inside VM for further progress.'\n"
         "else\n"
-        "  echo 'Steam is not installed in this VM yet.' >&2\n"
-        "  echo 'Install Steam/Proton provisioning in a later HaSe phase.' >&2\n"
-        "  exit 2\n"
+        "  echo 'Steam not found; run hasectl install-steam <bottle> first.' >&2\n"
+        "  exit 1\n"
         "fi\n",
         0755);
+
 }
 
 static void write_metadata(const hase_config_t *cfg) {
@@ -1039,9 +1076,27 @@ static int cmd_shell(const hase_config_t *cfg) {
     return 127;
 }
 
-static int cmd_steam(const hase_config_t *cfg) {
+static int cmd_steam(const hase_config_t *cfg, const char *argv0) {
     ensure_bottle_exists(cfg);
     write_runtime_scripts(cfg);
+
+    /* Start hase_window_host on macOS in the background. */
+    char host_path[PATH_MAX];
+    if (realpath(argv0, host_path)) {
+        char *slash = strrchr(host_path, '/');
+        if (slash) {
+            strcpy(slash + 1, "hase_window_host");
+            if (access(host_path, X_OK) == 0) {
+                printf("Starting macOS window manager: %s %s\n", host_path, cfg->name);
+                pid_t pid = fork();
+                if (pid == 0) {
+                    execl(host_path, host_path, cfg->name, (char *)NULL);
+                    _exit(1);
+                }
+            }
+        }
+    }
+
     char *argv[] = {
         "limactl", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name,
         "sh", "-lc", "/mnt/hase/runtime/launch-steam.sh",
@@ -1197,23 +1252,19 @@ static int cmd_run_triangle_demo(const hase_config_t *cfg) {
     return run_wait(argv);
 }
 
-static int cmd_prepare_dxvk_smoke(const hase_config_t *cfg) {
+static int cmd_install_steam(const hase_config_t *cfg) {
     ensure_bottle_exists(cfg);
     write_runtime_scripts(cfg);
-    char *argv[] = {
-        "limactl", "--tty=false", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name,
-        "sh", "-lc", "/mnt/hase/runtime/prepare-dxvk-smoke.sh",
-        NULL
-    };
-    return run_wait(argv);
-}
 
-static int cmd_run_dxvk_smoke(const hase_config_t *cfg) {
-    ensure_bottle_exists(cfg);
-    write_runtime_scripts(cfg);
+    if (!lima_instance_exists(cfg)) {
+        fprintf(stderr, "hasectl: VM not running; start it first with: "
+                        "hasectl start %s\n", cfg->name);
+        return 1;
+    }
+
     char *argv[] = {
         "limactl", "--tty=false", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name,
-        "sh", "-lc", "/mnt/hase/runtime/run-dxvk-smoke.sh",
+        "sh", "-lc", "/mnt/hase/runtime/install-steam.sh",
         NULL
     };
     return run_wait(argv);
@@ -1245,16 +1296,15 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "stop")) return cmd_stop(&cfg);
     if (!strcmp(argv[1], "status")) return cmd_status(&cfg);
     if (!strcmp(argv[1], "shell")) return cmd_shell(&cfg);
-    if (!strcmp(argv[1], "steam")) return cmd_steam(&cfg);
+    if (!strcmp(argv[1], "steam")) return cmd_steam(&cfg, argv[0]);
     if (!strcmp(argv[1], "demo-window")) return cmd_demo_window(&cfg);
     if (!strcmp(argv[1], "windows")) return cmd_windows(&cfg);
     if (!strcmp(argv[1], "refresh-runtime")) return cmd_refresh_runtime(&cfg);
     if (!strcmp(argv[1], "install-icd")) return cmd_install_icd(&cfg, argv[0]);
     if (!strcmp(argv[1], "install-fex")) return cmd_install_fex(&cfg);
-    if (!strcmp(argv[1], "prepare-dxvk-smoke")) return cmd_prepare_dxvk_smoke(&cfg);
+    if (!strcmp(argv[1], "install-steam")) return cmd_install_steam(&cfg);
     if (!strcmp(argv[1], "run-clear-demo")) return cmd_run_clear_demo(&cfg);
     if (!strcmp(argv[1], "run-triangle-demo")) return cmd_run_triangle_demo(&cfg);
-    if (!strcmp(argv[1], "run-dxvk-smoke")) return cmd_run_dxvk_smoke(&cfg);
     if (!strcmp(argv[1], "paths")) return cmd_paths(&cfg);
 
     usage(stderr);

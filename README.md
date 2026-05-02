@@ -136,13 +136,14 @@ Useful prototype commands:
 build/hase/hasectl status test
 build/hase/hasectl shell test
 build/hase/hasectl install-fex test
+build/hase/hasectl install-steam test
 build/hase/hasectl steam test
 build/hase/hasectl demo-window test
 build/hase/hasectl windows test
 build/hase/hasectl stop test
 ```
 
-The generated Linux runtime uses `Xvfb` plus `openbox` on display `:99`, with a black background and no desktop shell. `windows` returns Linux window IDs, process IDs, geometry, and titles using `wmctrl`. That is the first cropped-framebuffer/window-tracking model; later HaSe can replace it with direct Wayland/X11 surface bridging while CheeseBridge handles accelerated Vulkan game presentation.
+The Steam command launches the Linux Steam bootstrapper through FEX, not Windows Steam through Wine. The generated Linux runtime uses `Xvfb` plus a tiny window manager on display `:99`, with a black background and no desktop shell. The experimental fast path defaults to a smaller `960x540x16` guest display, raw XWD frame capture, and a shared input queue to avoid per-event SSH. Override with `HASE_GEOMETRY`, `HASE_CAPTURE_DELAY`, `HASE_CAPTURE_FORMAT`, `HASE_INPUT_DELAY`, or `HASE_HOST_REFRESH_INTERVAL` when testing.
 
 On macOS, the default build also creates the first host-side window bridge:
 
