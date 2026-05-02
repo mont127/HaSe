@@ -43,6 +43,7 @@ static void usage(FILE *out) {
         "  hasectl steam <bottle> [--root DIR]\n"
         "  hasectl demo-window <bottle> [--root DIR]\n"
         "  hasectl windows <bottle> [--root DIR]\n"
+        "  hasectl refresh-runtime <bottle> [--root DIR]\n"
         "  hasectl install-icd <bottle> [--root DIR]\n"
         "  hasectl install-fex <bottle> [--root DIR]\n"
         "  hasectl prepare-dxvk-smoke <bottle> [--root DIR]\n"
@@ -806,6 +807,16 @@ static int cmd_paths(const hase_config_t *cfg) {
     return 0;
 }
 
+static int cmd_refresh_runtime(const hase_config_t *cfg) {
+    ensure_bottle_exists(cfg);
+    write_lima_yaml(cfg);
+    write_runtime_scripts(cfg);
+    write_metadata(cfg);
+    printf("Refreshed HaSe runtime scripts: %s/runtime\n", cfg->bottle);
+    printf("Manual FEX installer path inside VM: /mnt/hase/runtime/install-fex.sh\n");
+    return 0;
+}
+
 static int cmd_start(const hase_config_t *cfg) {
     ensure_bottle_exists(cfg);
     write_runtime_scripts(cfg);
@@ -1072,6 +1083,7 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "steam")) return cmd_steam(&cfg);
     if (!strcmp(argv[1], "demo-window")) return cmd_demo_window(&cfg);
     if (!strcmp(argv[1], "windows")) return cmd_windows(&cfg);
+    if (!strcmp(argv[1], "refresh-runtime")) return cmd_refresh_runtime(&cfg);
     if (!strcmp(argv[1], "install-icd")) return cmd_install_icd(&cfg, argv[0]);
     if (!strcmp(argv[1], "install-fex")) return cmd_install_fex(&cfg);
     if (!strcmp(argv[1], "prepare-dxvk-smoke")) return cmd_prepare_dxvk_smoke(&cfg);
