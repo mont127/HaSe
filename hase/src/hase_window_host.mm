@@ -403,6 +403,7 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 @property(nonatomic) BOOL sizedFromGuest;
 @property(nonatomic) BOOL haveSeenWindow;
 @property(nonatomic) NSInteger refreshCounter;
+@property(nonatomic) NSInteger windowRelistInterval;
 - (void)handleMouseEvent:(NSEvent *)event button:(NSInteger)button pressed:(BOOL)pressed;
 - (void)handleMouseMoveEvent:(NSEvent *)event;
 - (void)handleScrollEvent:(NSEvent *)event;
@@ -484,6 +485,8 @@ static NSString *KeyNameForEvent(NSEvent *event) {
     _bottle = [bottle copy];
     _explicitWindowID = [windowID copy];
     _inputQueue = dispatch_queue_create("dev.hase.window-host.input", DISPATCH_QUEUE_SERIAL);
+    _windowRelistInterval = IntegerFromCString(getenv("HASE_WINDOW_RELIST_INTERVAL"), 120);
+    if (_windowRelistInterval < 10) _windowRelistInterval = 10;
     return self;
 }
 
@@ -491,7 +494,7 @@ static NSString *KeyNameForEvent(NSEvent *event) {
     [self createHostWindow:NSMakeSize(720, 420)];
     [self refreshNow];
     const char *intervalEnv = getenv("HASE_HOST_REFRESH_INTERVAL");
-    NSTimeInterval interval = intervalEnv && *intervalEnv ? atof(intervalEnv) : (1.0 / 60.0);
+    NSTimeInterval interval = intervalEnv && *intervalEnv ? atof(intervalEnv) : (1.0 / 30.0);
     if (interval < 0.005) interval = 0.005;
     self.timer = [NSTimer scheduledTimerWithTimeInterval:interval
                                                  repeats:YES
@@ -711,12 +714,11 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 
     NSString *bottle = self.bottle;
     NSString *explicitID = self.explicitWindowID;
-    /* Re-use cached window when possible; only re-list every 10 refreshes or
-       when we have no window yet. */
+    /* Window discovery crosses the VM boundary, so keep it off the hot path. */
     HaSeLinuxWindow *cachedWindow = self.selectedWindow;
     self.refreshCounter++;
-    BOOL needsList = (!cachedWindow || self.refreshCounter % 10 == 0 ||
-                      [explicitID length] > 0);
+    NSInteger relistEvery = self.windowRelistInterval > 0 ? self.windowRelistInterval : 120;
+    BOOL needsList = (!cachedWindow || self.refreshCounter % relistEvery == 0);
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         @autoreleasepool {

@@ -143,7 +143,7 @@ build/hase/hasectl windows test
 build/hase/hasectl stop test
 ```
 
-The Steam command launches the Linux Steam bootstrapper through FEX, not Windows Steam through Wine. The generated Linux runtime uses `Xvfb` plus a tiny window manager on display `:99`, with a black background and no desktop shell. The experimental fast path defaults to a smaller `960x540x24` guest display, raw XWD frame capture, Steam CEF GPU-disable flags for the UI, and a shared input queue to avoid per-event SSH. Override with `HASE_GEOMETRY`, `HASE_STEAM_ARGS`, `HASE_CAPTURE_DELAY`, `HASE_CAPTURE_FORMAT`, `HASE_INPUT_DELAY`, or `HASE_HOST_REFRESH_INTERVAL` when testing.
+The Steam command launches the Linux Steam bootstrapper through FEX, not Windows Steam through Wine. The generated Linux runtime uses `Xvfb` plus a tiny window manager on display `:99`, with a black background and no desktop shell. The experimental fast path defaults to a smaller `960x540x24` guest display, raw XWD frame capture at about 30 fps, Steam CEF GPU-disable flags for the UI, and a shared input queue to avoid per-event SSH. Override with `HASE_GEOMETRY`, `HASE_STEAM_ARGS`, `HASE_CAPTURE_DELAY`, `HASE_CAPTURE_FORMAT`, `HASE_INPUT_DELAY`, `HASE_HOST_REFRESH_INTERVAL`, or `HASE_WINDOW_RELIST_INTERVAL` when testing.
 
 On macOS, the default build also creates the first host-side window bridge:
 

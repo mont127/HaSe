@@ -238,6 +238,28 @@ static int run_wait(char *const argv[]) {
     return 127;
 }
 
+static bool host_window_running(const hase_config_t *cfg) {
+    char pattern[256];
+    int n = snprintf(pattern, sizeof pattern,
+                     "hase_window_host[[:space:]]+%s([[:space:]]|$)",
+                     cfg->name);
+    if (n < 0 || (size_t)n >= sizeof pattern) return false;
+
+    pid_t pid = fork();
+    if (pid < 0) return false;
+    if (pid == 0) {
+        execlp("pgrep", "pgrep", "-f", pattern, (char *)NULL);
+        _exit(127);
+    }
+
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        return false;
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
 static void ensure_bottle_exists(const hase_config_t *cfg) {
     if (!exists_dir(cfg->bottle))
         die("bottle does not exist: %s\nRun: hasectl init %s", cfg->bottle, cfg->name);
@@ -425,7 +447,7 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "set -eu\n"
         "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
         "FORMAT=\"${HASE_CAPTURE_FORMAT:-xwd}\"\n"
-        "DELAY=\"${HASE_CAPTURE_DELAY:-0.016}\"\n"
+        "DELAY=\"${HASE_CAPTURE_DELAY:-0.033}\"\n"
         "BASE=\"/mnt/hase/runtime/frame\"\n"
         "mkdir -p /mnt/hase/runtime\n"
         "rm -f \"$BASE.xwd\" \"$BASE.bmp\" \"$BASE.tmp.xwd\" \"$BASE.tmp.bmp\"\n"
@@ -1009,7 +1031,7 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "  pkill -f capture-daemon.sh >/dev/null 2>&1 || true\n"
         "  pkill -f input-daemon.sh >/dev/null 2>&1 || true\n"
         "  HASE_CAPTURE_FORMAT=\"${HASE_CAPTURE_FORMAT:-xwd}\" \\\n"
-        "  HASE_CAPTURE_DELAY=\"${HASE_CAPTURE_DELAY:-0.016}\" \\\n"
+        "  HASE_CAPTURE_DELAY=\"${HASE_CAPTURE_DELAY:-0.033}\" \\\n"
         "    nohup /mnt/hase/runtime/capture-daemon.sh >/tmp/hase/capture.log 2>&1 &\n"
         "  HASE_INPUT_DELAY=\"${HASE_INPUT_DELAY:-0.004}\" \\\n"
         "    nohup /mnt/hase/runtime/input-daemon.sh >/tmp/hase/input.log 2>&1 &\n"
@@ -1187,11 +1209,15 @@ static int cmd_steam(const hase_config_t *cfg, const char *argv0) {
         if (slash) {
             strcpy(slash + 1, "hase_window_host");
             if (access(host_path, X_OK) == 0) {
-                printf("Starting macOS window manager: %s %s\n", host_path, cfg->name);
-                pid_t pid = fork();
-                if (pid == 0) {
-                    execl(host_path, host_path, cfg->name, (char *)NULL);
-                    _exit(1);
+                if (host_window_running(cfg)) {
+                    printf("macOS window manager is already running for bottle %s.\n", cfg->name);
+                } else {
+                    printf("Starting macOS window manager: %s %s\n", host_path, cfg->name);
+                    pid_t pid = fork();
+                    if (pid == 0) {
+                        execl(host_path, host_path, cfg->name, (char *)NULL);
+                        _exit(1);
+                    }
                 }
             }
         }
