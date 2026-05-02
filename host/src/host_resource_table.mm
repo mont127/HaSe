@@ -100,7 +100,7 @@ void host_table_drop(cb_remote_id_t id) {
         while (g_tab[h].id != EMPTY) {
             if (g_tab[h].id == id) {
                 g_tab[h].id  = TOMB;
-                g_tab[h].obj = (host_obj_t){0};
+                memset(&g_tab[h].obj, 0, sizeof g_tab[h].obj);
                 break;
             }
             h = (h + 1) & (g_cap - 1);

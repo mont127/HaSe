@@ -37,6 +37,12 @@ extern "C" {
 #define CB_FLAG_ASYNC       0x0002      /* fire-and-forget; no reply expected */
 #define CB_FLAG_BULK        0x0004      /* large payload (memory upload, etc.) */
 
+/*
+ * Wire-level identifier. The guest allocates these monotonically and the
+ * host translates them into Vk* handles via its resource table.
+ */
+typedef uint64_t cb_remote_id_t;
+
 typedef struct cb_frame_header {
     uint32_t magic;
     uint32_t length;

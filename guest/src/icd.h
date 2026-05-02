@@ -106,8 +106,9 @@ VkResult cb_stub_rpc_call(uint16_t opcode, const void *payload, uint32_t len,
 
 #define CB_DISPATCHABLE_HEADER VK_LOADER_DATA loader_data;
 
-/* 64-bit id namespace for objects living on the host. */
-typedef uint64_t cb_remote_id_t;
+/* 64-bit id namespace for objects living on the host.
+ * cb_remote_id_t is defined in protocol/cheesebridge_proto.h (the wire-level
+ * type) — included transitively via the wire header. */
 #define CB_NULL_ID 0ull
 
 /* atomic next-id allocator (per-instance) */

@@ -21,7 +21,9 @@
 
 /* ---- Helpers ----------------------------------------------------------- */
 
-static inline cb_device_memory_t *cb_dummy(void){ return NULL; }   /* silence -Wunused */
+/* Forward declaration: defined later in the file. Used by op_create_device
+ * before its definition site. */
+static host_device_rec_t *g_last_device;
 
 #define READ_DEV(R, REC)                                              \
     cb_remote_id_t _devid = cb_r_u64(R);                              \
@@ -126,7 +128,7 @@ static void op_pd_##name(host_conn_t *c, uint32_t seq, cb_reader_t *r) {      \
     VkPhysicalDevice pd = (VkPhysicalDevice)host_table_get(pid, HK_PHYSICAL_DEVICE); \
     if (!pd) { host_reply_fail(c, seq, VK_ERROR_DEVICE_LOST); return; }       \
     /* find the instance that owns this pd to access function table */       \
-    host_obj_t obj = {0}; (void)obj;                                          \
+    host_obj_t obj; (void)obj;                                                \
     /* the parent_id stored is the instance id */                             \
     /* We re-walk the resource table to fetch the instance rec.       */     \
     /* Simpler: use any of g_instances; here, fetch by parent_id.     */     \
@@ -367,8 +369,7 @@ static void op_queue_wait_idle(host_conn_t *c, uint32_t seq, cb_reader_t *r) {
 }
 
 /* Tracks the most-recently-created device so QueueWaitIdle has a function
- * pointer to use. */
-static host_device_rec_t *g_last_device;
+ * pointer to use. (Storage forward-declared above.) */
 host_device_rec_t *host_any_device_rec(void) { return g_last_device; }
 
 /* ---- Memory / buffers / images ----------------------------------------- */
@@ -813,7 +814,7 @@ static void op_create_surface(host_conn_t *c, uint32_t seq, cb_reader_t *r) {
 
     VkMetalSurfaceCreateInfoEXT mi = {
         .sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
-        .pLayer = (__bridge const void *)layer,
+        .pLayer = layer,
     };
     VkSurfaceKHR surf;
     VkResult vr = inst->ifn.CreateMetalSurfaceEXT(inst->vk, &mi, NULL, &surf);

@@ -8,6 +8,7 @@ project(HaSeCheeseBridge
 
 option(CHEESEBRIDGE_BUILD_DEMO "Build the Phase 1 fake CheeseBridge host/guest demo tools" ON)
 option(CHEESEBRIDGE_BUILD_GUEST "Build the Linux Vulkan ICD guest stub" OFF)
+option(CHEESEBRIDGE_BUILD_HOST "Build the macOS CheeseBridge dispatch host (Phase 3)" ${APPLE})
 option(HASE_BUILD_MANAGER "Build the HaSe Linux bottle runtime manager prototype" ON)
 
 add_subdirectory(protocol)
@@ -22,4 +23,8 @@ endif()
 
 if (CHEESEBRIDGE_BUILD_GUEST)
     add_subdirectory(guest)
+endif()
+
+if (CHEESEBRIDGE_BUILD_HOST)
+    add_subdirectory(host)
 endif()

@@ -22,6 +22,7 @@
 #define CHEESEBRIDGE_HOST_H
 
 #define VK_NO_PROTOTYPES
+#define VK_USE_PLATFORM_METAL_EXT
 #include <vulkan/vulkan.h>
 
 #include "cheesebridge_proto.h"
