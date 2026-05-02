@@ -163,16 +163,134 @@ static BOOL HasPNGSignature(NSData *data) {
     return [data length] >= sizeof sig && memcmp([data bytes], sig, sizeof sig) == 0;
 }
 
+static CGFloat ClampCGFloat(CGFloat value, CGFloat minValue, CGFloat maxValue) {
+    if (value < minValue) return minValue;
+    if (value > maxValue) return maxValue;
+    return value;
+}
+
+static NSString *KeyNameForEvent(NSEvent *event) {
+    NSString *chars = [event charactersIgnoringModifiers] ?: @"";
+    if ([chars length] == 0) return nil;
+
+    unichar ch = [chars characterAtIndex:0];
+    switch (ch) {
+        case 0x0003: return @"Return";
+        case 0x0009: return @"Tab";
+        case 0x000d: return @"Return";
+        case 0x001b: return @"Escape";
+        case 0x007f: return @"BackSpace";
+        case NSDeleteFunctionKey: return @"Delete";
+        case NSLeftArrowFunctionKey: return @"Left";
+        case NSRightArrowFunctionKey: return @"Right";
+        case NSUpArrowFunctionKey: return @"Up";
+        case NSDownArrowFunctionKey: return @"Down";
+        case NSHomeFunctionKey: return @"Home";
+        case NSEndFunctionKey: return @"End";
+        case NSPageUpFunctionKey: return @"Page_Up";
+        case NSPageDownFunctionKey: return @"Page_Down";
+        case NSF1FunctionKey: return @"F1";
+        case NSF2FunctionKey: return @"F2";
+        case NSF3FunctionKey: return @"F3";
+        case NSF4FunctionKey: return @"F4";
+        case NSF5FunctionKey: return @"F5";
+        case NSF6FunctionKey: return @"F6";
+        case NSF7FunctionKey: return @"F7";
+        case NSF8FunctionKey: return @"F8";
+        case NSF9FunctionKey: return @"F9";
+        case NSF10FunctionKey: return @"F10";
+        case NSF11FunctionKey: return @"F11";
+        case NSF12FunctionKey: return @"F12";
+        default: return nil;
+    }
+}
+
+@class HaSeInputImageView;
+
 @interface HaSeWindowHostController : NSObject <NSApplicationDelegate, NSWindowDelegate>
 @property(nonatomic, copy) NSString *bottle;
 @property(nonatomic, copy) NSString *explicitWindowID;
 @property(nonatomic, strong) HaSeLinuxWindow *selectedWindow;
 @property(nonatomic, strong) NSWindow *window;
-@property(nonatomic, strong) NSImageView *imageView;
+@property(nonatomic, strong) HaSeInputImageView *imageView;
 @property(nonatomic, strong) NSTextField *statusLabel;
 @property(nonatomic, strong) NSTimer *timer;
+@property(nonatomic, strong) dispatch_queue_t inputQueue;
+@property(nonatomic) NSSize guestImageSize;
+@property(nonatomic) NSTimeInterval lastMouseMoveSent;
 @property(nonatomic) BOOL refreshInFlight;
 @property(nonatomic) BOOL sizedFromGuest;
+- (void)handleMouseEvent:(NSEvent *)event button:(NSInteger)button pressed:(BOOL)pressed;
+- (void)handleMouseMoveEvent:(NSEvent *)event;
+- (void)handleScrollEvent:(NSEvent *)event;
+- (void)handleKeyEvent:(NSEvent *)event;
+@end
+
+@interface HaSeInputImageView : NSImageView
+@property(nonatomic, weak) HaSeWindowHostController *controller;
+@end
+
+@implementation HaSeInputImageView
+
+- (BOOL)acceptsFirstResponder {
+    return YES;
+}
+
+- (BOOL)acceptsFirstMouse:(NSEvent *)event {
+    return YES;
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    [[self window] makeFirstResponder:self];
+    [self.controller handleMouseEvent:event button:1 pressed:YES];
+}
+
+- (void)mouseUp:(NSEvent *)event {
+    [self.controller handleMouseEvent:event button:1 pressed:NO];
+}
+
+- (void)rightMouseDown:(NSEvent *)event {
+    [[self window] makeFirstResponder:self];
+    [self.controller handleMouseEvent:event button:3 pressed:YES];
+}
+
+- (void)rightMouseUp:(NSEvent *)event {
+    [self.controller handleMouseEvent:event button:3 pressed:NO];
+}
+
+- (void)otherMouseDown:(NSEvent *)event {
+    [[self window] makeFirstResponder:self];
+    [self.controller handleMouseEvent:event button:2 pressed:YES];
+}
+
+- (void)otherMouseUp:(NSEvent *)event {
+    [self.controller handleMouseEvent:event button:2 pressed:NO];
+}
+
+- (void)mouseMoved:(NSEvent *)event {
+    [self.controller handleMouseMoveEvent:event];
+}
+
+- (void)mouseDragged:(NSEvent *)event {
+    [self.controller handleMouseMoveEvent:event];
+}
+
+- (void)rightMouseDragged:(NSEvent *)event {
+    [self.controller handleMouseMoveEvent:event];
+}
+
+- (void)otherMouseDragged:(NSEvent *)event {
+    [self.controller handleMouseMoveEvent:event];
+}
+
+- (void)scrollWheel:(NSEvent *)event {
+    [self.controller handleScrollEvent:event];
+}
+
+- (void)keyDown:(NSEvent *)event {
+    [self.controller handleKeyEvent:event];
+}
+
 @end
 
 @implementation HaSeWindowHostController
@@ -182,6 +300,7 @@ static BOOL HasPNGSignature(NSData *data) {
     if (!self) return nil;
     _bottle = [bottle copy];
     _explicitWindowID = [windowID copy];
+    _inputQueue = dispatch_queue_create("dev.hase.window-host.input", DISPATCH_QUEUE_SERIAL);
     return self;
 }
 
@@ -219,11 +338,13 @@ static BOOL HasPNGSignature(NSData *data) {
                                                   defer:NO];
     self.window.title = [NSString stringWithFormat:@"HaSe %@", self.bottle];
     self.window.delegate = self;
+    self.window.acceptsMouseMovedEvents = YES;
 
     NSView *content = [[NSView alloc] initWithFrame:frame];
     content.autoresizesSubviews = YES;
 
-    self.imageView = [[NSImageView alloc] initWithFrame:content.bounds];
+    self.imageView = [[HaSeInputImageView alloc] initWithFrame:content.bounds];
+    self.imageView.controller = self;
     self.imageView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     self.imageView.imageScaling = NSImageScaleAxesIndependently;
     self.imageView.wantsLayer = YES;
@@ -245,6 +366,7 @@ static BOOL HasPNGSignature(NSData *data) {
     self.window.contentView = content;
     [self.window center];
     [self.window makeKeyAndOrderFront:nil];
+    [self.window makeFirstResponder:self.imageView];
 }
 
 - (void)setStatus:(NSString *)status visible:(BOOL)visible {
@@ -269,6 +391,125 @@ static BOOL HasPNGSignature(NSData *data) {
         return;
     }
     [self.window setContentSize:contentSize];
+}
+
+- (BOOL)linuxPointForEvent:(NSEvent *)event x:(NSInteger *)outX y:(NSInteger *)outY {
+    if (!self.selectedWindow || [self.selectedWindow.windowID length] == 0) return NO;
+    NSRect bounds = self.imageView.bounds;
+    if (bounds.size.width <= 0 || bounds.size.height <= 0) return NO;
+
+    NSPoint local = [self.imageView convertPoint:event.locationInWindow fromView:nil];
+    CGFloat imageWidth = self.guestImageSize.width > 0 ? self.guestImageSize.width : self.selectedWindow.width;
+    CGFloat imageHeight = self.guestImageSize.height > 0 ? self.guestImageSize.height : self.selectedWindow.height;
+    if (imageWidth <= 0 || imageHeight <= 0) return NO;
+
+    CGFloat unitX = ClampCGFloat(local.x / bounds.size.width, 0.0, 1.0);
+    CGFloat unitY = ClampCGFloat((bounds.size.height - local.y) / bounds.size.height, 0.0, 1.0);
+    NSInteger linuxX = self.selectedWindow.x + (NSInteger)llround(unitX * (imageWidth - 1.0));
+    NSInteger linuxY = self.selectedWindow.y + (NSInteger)llround(unitY * (imageHeight - 1.0));
+    if (outX) *outX = linuxX;
+    if (outY) *outY = linuxY;
+    return YES;
+}
+
+- (void)sendInputScript:(NSString *)script {
+    NSString *bottle = self.bottle;
+    NSString *guestScript = [NSString stringWithFormat:
+        @"/mnt/hase/runtime/start-session.sh >/dev/null; "
+         "export DISPLAY=\"${HASE_DISPLAY:-:99}\"; "
+         "if ! command -v xdotool >/dev/null 2>&1; then "
+         "  echo 'xdotool is not installed in the HaSe VM' >&2; exit 2; "
+         "fi; %@",
+        script];
+
+    dispatch_async(self.inputQueue, ^{
+        int rc = 0;
+        NSString *errorText = nil;
+        RunShellData(LimactlShellScript(VMNameForBottle(bottle), guestScript), &rc, &errorText);
+        if (rc != 0 && [errorText length] > 0) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self setStatus:errorText visible:YES];
+            });
+        }
+    });
+}
+
+- (NSString *)focusScriptForWindowID:(NSString *)windowID {
+    return [NSString stringWithFormat:
+        @"WID=%@; "
+         "xdotool windowactivate --sync \"$WID\" >/dev/null 2>&1 || "
+         "xdotool windowfocus \"$WID\" >/dev/null 2>&1 || true; ",
+        ShellQuote(windowID)];
+}
+
+- (void)handleMouseMoveEvent:(NSEvent *)event {
+    if (event.timestamp - self.lastMouseMoveSent < 0.08) return;
+    self.lastMouseMoveSent = event.timestamp;
+
+    NSInteger x = 0, y = 0;
+    if (![self linuxPointForEvent:event x:&x y:&y]) return;
+
+    NSString *windowID = self.selectedWindow.windowID;
+    NSString *script = [NSString stringWithFormat:
+        @"%@ xdotool mousemove --sync %ld %ld",
+        [self focusScriptForWindowID:windowID], (long)x, (long)y];
+    [self sendInputScript:script];
+}
+
+- (void)handleMouseEvent:(NSEvent *)event button:(NSInteger)button pressed:(BOOL)pressed {
+    NSInteger x = 0, y = 0;
+    if (![self linuxPointForEvent:event x:&x y:&y]) return;
+
+    NSString *windowID = self.selectedWindow.windowID;
+    NSString *verb = pressed ? @"mousedown" : @"mouseup";
+    NSString *script = [NSString stringWithFormat:
+        @"%@ xdotool mousemove --sync %ld %ld %@ %ld",
+        [self focusScriptForWindowID:windowID], (long)x, (long)y, verb, (long)button];
+    [self sendInputScript:script];
+}
+
+- (void)handleScrollEvent:(NSEvent *)event {
+    if (!self.selectedWindow) return;
+    CGFloat dy = event.scrollingDeltaY;
+    CGFloat dx = event.scrollingDeltaX;
+    NSInteger button = 0;
+    NSInteger steps = 0;
+
+    if (fabs(dy) >= fabs(dx) && fabs(dy) > 0.01) {
+        button = dy > 0 ? 4 : 5;
+        steps = MAX(1, MIN(6, (NSInteger)ceil(fabs(dy) / 8.0)));
+    } else if (fabs(dx) > 0.01) {
+        button = dx > 0 ? 6 : 7;
+        steps = MAX(1, MIN(6, (NSInteger)ceil(fabs(dx) / 8.0)));
+    } else {
+        return;
+    }
+
+    NSMutableString *clicks = [NSMutableString string];
+    for (NSInteger i = 0; i < steps; ++i) {
+        [clicks appendFormat:@" xdotool click %ld;", (long)button];
+    }
+    NSString *script = [NSString stringWithFormat:@"%@ %@", [self focusScriptForWindowID:self.selectedWindow.windowID], clicks];
+    [self sendInputScript:script];
+}
+
+- (void)handleKeyEvent:(NSEvent *)event {
+    if (!self.selectedWindow) return;
+    if ((event.modifierFlags & NSEventModifierFlagCommand) != 0) return;
+
+    NSString *windowID = self.selectedWindow.windowID;
+    NSString *keyName = KeyNameForEvent(event);
+    NSString *script = nil;
+    if (keyName) {
+        script = [NSString stringWithFormat:@"%@ xdotool key --clearmodifiers %@",
+                  [self focusScriptForWindowID:windowID], keyName];
+    } else {
+        NSString *chars = [event characters] ?: @"";
+        if ([chars length] == 0) return;
+        script = [NSString stringWithFormat:@"%@ xdotool type --clearmodifiers --delay 0 %@",
+                  [self focusScriptForWindowID:windowID], ShellQuote(chars)];
+    }
+    [self sendInputScript:script];
 }
 
 - (void)refreshNow {
@@ -331,6 +572,7 @@ static BOOL HasPNGSignature(NSData *data) {
             }
             if (rep) {
                 img.size = NSMakeSize(rep.pixelsWide, rep.pixelsHigh);
+                self.guestImageSize = img.size;
                 if (!self.sizedFromGuest) {
                     [self resizeForGuestImage:img.size];
                     self.sizedFromGuest = YES;

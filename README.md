@@ -118,7 +118,7 @@ build/hase/hase_window_host --list test
 build/hase/hase_window_host test
 ```
 
-`hase_window_host` opens a native macOS window, polls the hidden Linux X11 session through `limactl`, captures the selected X11 window as PNG frames, and displays them in Cocoa. Pass a specific Linux window ID from `--list` to attach to a particular window:
+`hase_window_host` opens a native macOS window, polls the hidden Linux X11 session through `limactl`, captures the selected X11 window as PNG frames, and displays them in Cocoa. Basic mouse, scroll, and keyboard input is mapped back into the Linux X11 window through `xdotool`. Pass a specific Linux window ID from `--list` to attach to a particular window:
 
 ```sh
 build/hase/hase_window_host test 0x0060001b
