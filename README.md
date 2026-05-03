@@ -84,19 +84,25 @@ DXVK install sources are tried in this order: `HASE_DXVK_DIR`, a `dxvk-*.tar.*` 
 
 ## Steam Game Vulkan Bridge
 
-Steam itself stays on Lavapipe for the Linux UI. To route a selected Vulkan game, Proton game, or DXVK game through CheeseBridge, start the host and print the per-game launch option:
+Steam itself stays on Lavapipe for the Linux UI. `hasectl steam` now starts the CheeseBridge host and a VM-side Proton bridge daemon. The daemon watches Steam's installed Proton runtimes and wraps their `proton` launchers so Windows games launched from Steam inherit the CheeseBridge Vulkan environment automatically.
+
+```sh
+build/hase/hasectl steam test
+```
+
+You can also start or refresh only the game bridge:
 
 ```sh
 build/hase/hasectl game-bridge test
 ```
 
-Then set this in that game's Steam launch options:
+For native Linux Vulkan games that do not use Proton, this manual per-game launch option remains available:
 
 ```sh
 /mnt/hase/runtime/cheesebridge-game.sh %command%
 ```
 
-That wrapper overrides `VK_DRIVER_FILES` and `VK_ICD_FILENAMES` for the game process only, points `CHEESEBRIDGE_HOST` at `tcp:host.lima.internal:43210`, and maps normal Linux `VK_KHR_xlib_surface` / `VK_KHR_xcb_surface` creation to a host-owned CheeseBridge Metal window. Steam login, library UI, and launchers still use the cropped X11 framebuffer path.
+Both paths override `VK_DRIVER_FILES` and `VK_ICD_FILENAMES` for the game process, point `CHEESEBRIDGE_HOST` at `tcp:host.lima.internal:43210`, and map normal Linux `VK_KHR_xlib_surface` / `VK_KHR_xcb_surface` creation to a host-owned CheeseBridge Metal window. Steam login, library UI, and launchers still use the cropped X11 framebuffer path.
 
 ## HaSe Linux VM Prototype
 
