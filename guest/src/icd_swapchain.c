@@ -52,6 +52,82 @@ cb_vkCreateCheeseBridgeSurfaceKHR(VkInstance instance,
     return VK_SUCCESS;
 }
 
+static uint32_t cb_env_u32(const char *name, uint32_t fallback) {
+    const char *value = getenv(name);
+    if (!value || !*value) return fallback;
+    char *end = NULL;
+    unsigned long parsed = strtoul(value, &end, 10);
+    if (end == value || parsed == 0 || parsed > UINT32_MAX) return fallback;
+    return (uint32_t)parsed;
+}
+
+static uint32_t cb_surface_width(void) {
+    uint32_t fallback = cb_env_u32("HASE_GAME_WIDTH", 1280);
+    return cb_env_u32("CHEESEBRIDGE_SURFACE_WIDTH", fallback);
+}
+
+static uint32_t cb_surface_height(void) {
+    uint32_t fallback = cb_env_u32("HASE_GAME_HEIGHT", 720);
+    return cb_env_u32("CHEESEBRIDGE_SURFACE_HEIGHT", fallback);
+}
+
+/*
+ * Steam/Proton/DXVK normally creates an Xlib or XCB Vulkan surface. The first
+ * CheeseBridge game path maps those Linux WSI calls to a host-owned macOS
+ * Metal window instead of trying to import the guest X11 window.
+ */
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkCreateXlibSurfaceKHR(VkInstance instance,
+                          const void *pCreateInfo,
+                          const VkAllocationCallbacks *pAllocator,
+                          VkSurfaceKHR *pSurface) {
+    (void)pCreateInfo;
+    (void)pAllocator;
+    uint32_t width = cb_surface_width();
+    uint32_t height = cb_surface_height();
+    CB_I("vkCreateXlibSurfaceKHR -> CheeseBridge host surface %ux%u",
+         width, height);
+    return cb_vkCreateCheeseBridgeSurfaceKHR(instance, width, height, pSurface);
+}
+
+VKAPI_ATTR VkBool32 VKAPI_CALL
+cb_vkGetPhysicalDeviceXlibPresentationSupportKHR(VkPhysicalDevice physicalDevice,
+                                                 uint32_t queueFamilyIndex,
+                                                 void *dpy,
+                                                 uintptr_t visualID) {
+    (void)physicalDevice;
+    (void)queueFamilyIndex;
+    (void)dpy;
+    (void)visualID;
+    return VK_TRUE;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkCreateXcbSurfaceKHR(VkInstance instance,
+                         const void *pCreateInfo,
+                         const VkAllocationCallbacks *pAllocator,
+                         VkSurfaceKHR *pSurface) {
+    (void)pCreateInfo;
+    (void)pAllocator;
+    uint32_t width = cb_surface_width();
+    uint32_t height = cb_surface_height();
+    CB_I("vkCreateXcbSurfaceKHR -> CheeseBridge host surface %ux%u",
+         width, height);
+    return cb_vkCreateCheeseBridgeSurfaceKHR(instance, width, height, pSurface);
+}
+
+VKAPI_ATTR VkBool32 VKAPI_CALL
+cb_vkGetPhysicalDeviceXcbPresentationSupportKHR(VkPhysicalDevice physicalDevice,
+                                                uint32_t queueFamilyIndex,
+                                                void *connection,
+                                                uint32_t visual_id) {
+    (void)physicalDevice;
+    (void)queueFamilyIndex;
+    (void)connection;
+    (void)visual_id;
+    return VK_TRUE;
+}
+
 VKAPI_ATTR void VKAPI_CALL
 cb_vkDestroySurfaceKHR(VkInstance instance, VkSurfaceKHR surface,
                        const VkAllocationCallbacks *pAllocator) {

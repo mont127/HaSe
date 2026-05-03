@@ -27,6 +27,8 @@ cb_vkEnumerateInstanceLayerProperties(uint32_t *pCount, VkLayerProperties *pProp
  * to obtain a surface that maps to the host window. */
 static const VkExtensionProperties g_inst_exts[] = {
     { VK_KHR_SURFACE_EXTENSION_NAME,                 25 },
+    { "VK_KHR_xlib_surface",                          6 },
+    { "VK_KHR_xcb_surface",                           6 },
     { "VK_CHEESEBRIDGE_host_surface",                 1 },
 };
 

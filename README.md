@@ -82,6 +82,22 @@ The default HaSe bottle is ARM64-only and uses `FEXBash` for x86_64 execution. `
 
 DXVK install sources are tried in this order: `HASE_DXVK_DIR`, a `dxvk-*.tar.*` archive placed in `/mnt/hase/proton`, then `winetricks -q dxvk`.
 
+## Steam Game Vulkan Bridge
+
+Steam itself stays on Lavapipe for the Linux UI. To route a selected Vulkan game, Proton game, or DXVK game through CheeseBridge, start the host and print the per-game launch option:
+
+```sh
+build/hase/hasectl game-bridge test
+```
+
+Then set this in that game's Steam launch options:
+
+```sh
+/mnt/hase/runtime/cheesebridge-game.sh %command%
+```
+
+That wrapper overrides `VK_DRIVER_FILES` and `VK_ICD_FILENAMES` for the game process only, points `CHEESEBRIDGE_HOST` at `tcp:host.lima.internal:43210`, and maps normal Linux `VK_KHR_xlib_surface` / `VK_KHR_xcb_surface` creation to a host-owned CheeseBridge Metal window. Steam login, library UI, and launchers still use the cropped X11 framebuffer path.
+
 ## HaSe Linux VM Prototype
 
 HaSe is the runtime manager. CheeseBridge is only the Vulkan graphics bridge. The first implementation is a Lima-backed bottle manager that creates a hidden Linux VM shape with a minimal X11 session for Steam, launchers, and installer UI.
@@ -138,6 +154,7 @@ build/hase/hasectl shell test
 build/hase/hasectl install-fex test
 build/hase/hasectl install-steam test
 build/hase/hasectl steam test
+build/hase/hasectl game-bridge test
 build/hase/hasectl demo-window test
 build/hase/hasectl windows test
 build/hase/hasectl stop test

@@ -1,5 +1,6 @@
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stdarg.h>
@@ -47,6 +48,7 @@ static void usage(FILE *out) {
         "  hasectl install-icd <bottle> [--root DIR]\n"
         "  hasectl install-fex <bottle> [--root DIR]\n"
         "  hasectl install-steam <bottle> [--root DIR]\n"
+        "  hasectl game-bridge <bottle> [--root DIR]\n"
         "  hasectl run-clear-demo <bottle> [--root DIR]\n"
         "  hasectl run-triangle-demo <bottle> [--root DIR]\n"
         "  hasectl paths <bottle> [--root DIR]\n"
@@ -238,16 +240,16 @@ static int run_wait(char *const argv[]) {
     return 127;
 }
 
-static bool host_window_running(const hase_config_t *cfg) {
-    char pattern[256];
-    int n = snprintf(pattern, sizeof pattern,
-                     "hase_window_host[[:space:]]+%s([[:space:]]|$)",
-                     cfg->name);
-    if (n < 0 || (size_t)n >= sizeof pattern) return false;
-
+static bool process_running_pattern(const char *pattern) {
     pid_t pid = fork();
     if (pid < 0) return false;
     if (pid == 0) {
+        int null_fd = open("/dev/null", O_WRONLY);
+        if (null_fd >= 0) {
+            dup2(null_fd, STDOUT_FILENO);
+            dup2(null_fd, STDERR_FILENO);
+            if (null_fd > STDERR_FILENO) close(null_fd);
+        }
         execlp("pgrep", "pgrep", "-f", pattern, (char *)NULL);
         _exit(127);
     }
@@ -258,6 +260,19 @@ static bool host_window_running(const hase_config_t *cfg) {
         return false;
     }
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+static bool host_window_running(const hase_config_t *cfg) {
+    char pattern[256];
+    int n = snprintf(pattern, sizeof pattern,
+                     "hase_window_host[[:space:]]+%s([[:space:]]|$)",
+                     cfg->name);
+    if (n < 0 || (size_t)n >= sizeof pattern) return false;
+    return process_running_pattern(pattern);
+}
+
+static bool cheesebridge_host_running(void) {
+    return process_running_pattern("cheesebridge_host([[:space:]]|$|.*[[:space:]]43210)");
 }
 
 static void ensure_bottle_exists(const hase_config_t *cfg) {
@@ -592,6 +607,49 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "export CHEESEBRIDGE_HOST=\"${CHEESEBRIDGE_HOST:-tcp:host.lima.internal:43210}\"\n"
         "exec \"$DST/triangle-demo\"\n",
         0755);
+
+    path_join(path, sizeof path, runtime, "cheesebridge-game.sh");
+    write_file(path,
+        "#!/bin/sh\n"
+        "# Launch a Steam game with Vulkan routed through the CheeseBridge ICD.\n"
+        "# Steam itself stays on Lavapipe; use this as a per-game Steam launch\n"
+        "# option: /mnt/hase/runtime/cheesebridge-game.sh %command%\n"
+        "set -eu\n"
+        "if [ \"$#\" -lt 1 ]; then\n"
+        "  echo 'usage: /mnt/hase/runtime/cheesebridge-game.sh COMMAND [ARGS...]' >&2\n"
+        "  echo 'Steam launch option: /mnt/hase/runtime/cheesebridge-game.sh %command%' >&2\n"
+        "  exit 2\n"
+        "fi\n"
+        "DST=/mnt/hase/vulkan/icd.d\n"
+        "MANIFEST=\"$DST/cheesebridge_icd.json\"\n"
+        "if [ ! -f \"$MANIFEST\" ]; then\n"
+        "  echo 'CheeseBridge ICD is not installed in this bottle.' >&2\n"
+        "  echo 'Run on macOS: build/hase/hasectl install-icd <bottle>' >&2\n"
+        "  exit 1\n"
+        "fi\n"
+        "mkdir -p /tmp/hase\n"
+        "export CHEESEBRIDGE_STUB=0\n"
+        "export CHEESEBRIDGE_HOST=\"${CHEESEBRIDGE_HOST:-tcp:host.lima.internal:43210}\"\n"
+        "export CHEESEBRIDGE_ICD_PATH=\"$DST/libCheeseBridge_icd.so\"\n"
+        "export VK_DRIVER_FILES=\"$MANIFEST\"\n"
+        "export VK_ICD_FILENAMES=\"$MANIFEST\"\n"
+        "export CHEESEBRIDGE_SURFACE_WIDTH=\"${CHEESEBRIDGE_SURFACE_WIDTH:-${HASE_GAME_WIDTH:-1280}}\"\n"
+        "export CHEESEBRIDGE_SURFACE_HEIGHT=\"${CHEESEBRIDGE_SURFACE_HEIGHT:-${HASE_GAME_HEIGHT:-720}}\"\n"
+        "export CHEESEBRIDGE_LOG=\"${CHEESEBRIDGE_LOG:-info}\"\n"
+        "export DXVK_LOG_LEVEL=\"${DXVK_LOG_LEVEL:-info}\"\n"
+        "unset LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER MESA_LOADER_DRIVER_OVERRIDE\n"
+        "unset VK_LOADER_DRIVERS_DISABLE VK_LOADER_DRIVERS_SELECT\n"
+        "printf '[cheesebridge-game] %s\\n' \"$(date '+%Y-%m-%d %H:%M:%S') $*\" >>/tmp/hase/cheesebridge-game.log\n"
+        "printf '[cheesebridge-game] ICD=%s HOST=%s SIZE=%sx%s\\n' \\\n"
+        "  \"$MANIFEST\" \"$CHEESEBRIDGE_HOST\" \"$CHEESEBRIDGE_SURFACE_WIDTH\" \"$CHEESEBRIDGE_SURFACE_HEIGHT\" \\\n"
+        "  >>/tmp/hase/cheesebridge-game.log\n"
+        "exec \"$@\"\n",
+        0755);
+
+    path_join(path, sizeof path, runtime, "cheesebridge-game-launch-option.txt");
+    write_file(path,
+        "/mnt/hase/runtime/cheesebridge-game.sh %command%\n",
+        0644);
 
     path_join(path, sizeof path, runtime, "install-fex.sh");
     write_file(path,
@@ -987,8 +1045,7 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
         "export CHEESEBRIDGE_HOST=\"${CHEESEBRIDGE_HOST:-tcp:host.lima.internal:43210}\"\n"
         "# Use Mesa Lavapipe (software Vulkan) for Steam UI rendering.\n"
-        "# CheeseBridge ICD does not expose VK_KHR_xlib_surface, which Steam needs.\n"
-        "# Games will use CheeseBridge via Proton's own VK_ICD_FILENAMES override.\n"
+        "# Games opt into CheeseBridge with /mnt/hase/runtime/cheesebridge-game.sh.\n"
         "export VK_ICD_FILENAMES=\"/usr/share/vulkan/icd.d/lvp_icd.json\"\n"
         "export LIBGL_ALWAYS_SOFTWARE=1\n"
         "export GALLIUM_DRIVER=\"${GALLIUM_DRIVER:-llvmpipe}\"\n"
@@ -1035,6 +1092,7 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "    nohup /mnt/hase/runtime/capture-daemon.sh >/tmp/hase/capture.log 2>&1 &\n"
         "  HASE_INPUT_DELAY=\"${HASE_INPUT_DELAY:-0.004}\" \\\n"
         "    nohup /mnt/hase/runtime/input-daemon.sh >/tmp/hase/input.log 2>&1 &\n"
+        "  echo 'CheeseBridge game launch option: /mnt/hase/runtime/cheesebridge-game.sh %command%'\n"
         "  echo 'Tailing logs for 15s (Ctrl+C to stop)...'\n"
         "  timeout 15 tail -f /tmp/steam.log 2>/dev/null || true\n"
         "  echo '\\nCheck /tmp/steam.log inside VM for further progress.'\n"
@@ -1198,9 +1256,53 @@ static int cmd_shell(const hase_config_t *cfg) {
     return 127;
 }
 
+static void maybe_start_cheesebridge_host(const char *argv0) {
+    char real[PATH_MAX];
+    if (!realpath(argv0, real)) return;
+
+    char *slash = strrchr(real, '/');
+    if (!slash) return;
+    *slash = '\0'; /* build/hase */
+    slash = strrchr(real, '/');
+    if (!slash) return;
+    *slash = '\0'; /* build */
+
+    char host_path[PATH_MAX];
+    path_join(host_path, sizeof host_path, real, "host/cheesebridge_host");
+    if (access(host_path, X_OK) != 0) {
+        fprintf(stderr,
+                "CheeseBridge host not found at %s; build with CHEESEBRIDGE_BUILD_HOST=ON.\n",
+                host_path);
+        return;
+    }
+
+    if (cheesebridge_host_running()) {
+        printf("CheeseBridge host is already running on port 43210.\n");
+        return;
+    }
+
+    printf("Starting CheeseBridge host: %s 43210\n", host_path);
+    fflush(stdout);
+    pid_t pid = fork();
+    if (pid == 0) {
+        setsid();
+        int log_fd = open("/tmp/hase-cheesebridge-host.log",
+                          O_CREAT | O_WRONLY | O_APPEND, 0644);
+        if (log_fd >= 0) {
+            dup2(log_fd, STDOUT_FILENO);
+            dup2(log_fd, STDERR_FILENO);
+            if (log_fd > STDERR_FILENO) close(log_fd);
+        }
+        execl(host_path, host_path, "43210", (char *)NULL);
+        _exit(1);
+    }
+}
+
 static int cmd_steam(const hase_config_t *cfg, const char *argv0) {
     ensure_bottle_exists(cfg);
     write_runtime_scripts(cfg);
+
+    maybe_start_cheesebridge_host(argv0);
 
     /* Start hase_window_host on macOS in the background. */
     char host_path[PATH_MAX];
@@ -1396,6 +1498,29 @@ static int cmd_install_steam(const hase_config_t *cfg) {
     return run_wait(argv);
 }
 
+static int cmd_game_bridge(const hase_config_t *cfg, const char *argv0) {
+    ensure_bottle_exists(cfg);
+    write_runtime_scripts(cfg);
+    maybe_start_cheesebridge_host(argv0);
+
+    char *argv[] = {
+        "limactl", "--tty=false", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name,
+        "sh", "-lc",
+        "set -eu; "
+        "printf 'Steam launch option for CheeseBridge Vulkan games:\\n'; "
+        "cat /mnt/hase/runtime/cheesebridge-game-launch-option.txt; "
+        "if [ -f /mnt/hase/vulkan/icd.d/cheesebridge_icd.json ]; then "
+        "  printf 'ICD: installed at /mnt/hase/vulkan/icd.d/cheesebridge_icd.json\\n'; "
+        "else "
+        "  printf 'ICD: missing - run hasectl install-icd <bottle> on macOS before launching a game.\\n'; "
+        "fi; "
+        "printf 'Host endpoint inside VM: %s\\n' \"${CHEESEBRIDGE_HOST:-tcp:host.lima.internal:43210}\"; "
+        "printf 'Game wrapper log: /tmp/hase/cheesebridge-game.log\\n'",
+        NULL
+    };
+    return run_wait(argv);
+}
+
 static int cmd_windows(const hase_config_t *cfg) {
     ensure_bottle_exists(cfg);
     write_runtime_scripts(cfg);
@@ -1429,6 +1554,7 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "install-icd")) return cmd_install_icd(&cfg, argv[0]);
     if (!strcmp(argv[1], "install-fex")) return cmd_install_fex(&cfg);
     if (!strcmp(argv[1], "install-steam")) return cmd_install_steam(&cfg);
+    if (!strcmp(argv[1], "game-bridge")) return cmd_game_bridge(&cfg, argv[0]);
     if (!strcmp(argv[1], "run-clear-demo")) return cmd_run_clear_demo(&cfg);
     if (!strcmp(argv[1], "run-triangle-demo")) return cmd_run_triangle_demo(&cfg);
     if (!strcmp(argv[1], "paths")) return cmd_paths(&cfg);

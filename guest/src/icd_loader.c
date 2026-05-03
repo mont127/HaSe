@@ -145,6 +145,10 @@ VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceSurfaceFormatsKHR(VkPhysica
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceSurfacePresentModesKHR(VkPhysicalDevice, VkSurfaceKHR, uint32_t *, VkPresentModeKHR *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateSwapchainKHR(VkDevice, const VkSwapchainCreateInfoKHR *, const VkAllocationCallbacks *, VkSwapchainKHR *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateCheeseBridgeSurfaceKHR(VkInstance, uint32_t, uint32_t, VkSurfaceKHR *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateXlibSurfaceKHR(VkInstance, const void *, const VkAllocationCallbacks *, VkSurfaceKHR *);
+VKAPI_ATTR VkBool32 VKAPI_CALL cb_vkGetPhysicalDeviceXlibPresentationSupportKHR(VkPhysicalDevice, uint32_t, void *, uintptr_t);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateXcbSurfaceKHR(VkInstance, const void *, const VkAllocationCallbacks *, VkSurfaceKHR *);
+VKAPI_ATTR VkBool32 VKAPI_CALL cb_vkGetPhysicalDeviceXcbPresentationSupportKHR(VkPhysicalDevice, uint32_t, void *, uint32_t);
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroySwapchainKHR(VkDevice, VkSwapchainKHR, const VkAllocationCallbacks *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetSwapchainImagesKHR(VkDevice, VkSwapchainKHR, uint32_t *, VkImage *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkAcquireNextImageKHR(VkDevice, VkSwapchainKHR, uint64_t, VkSemaphore, VkFence, uint32_t *);
@@ -260,6 +264,10 @@ static const struct cb_proc_entry g_procs[] = {
     E_INST(vkGetPhysicalDeviceSurfaceCapabilitiesKHR),
     E_INST(vkGetPhysicalDeviceSurfaceFormatsKHR),
     E_INST(vkGetPhysicalDeviceSurfacePresentModesKHR),
+    E_INST(vkCreateXlibSurfaceKHR),
+    E_INST(vkGetPhysicalDeviceXlibPresentationSupportKHR),
+    E_INST(vkCreateXcbSurfaceKHR),
+    E_INST(vkGetPhysicalDeviceXcbPresentationSupportKHR),
 
     E_DEV (vkCreateSwapchainKHR),    E_DEV (vkDestroySwapchainKHR),
     E_DEV (vkGetSwapchainImagesKHR), E_DEV (vkAcquireNextImageKHR),
