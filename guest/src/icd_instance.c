@@ -1,7 +1,14 @@
 #include "icd.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef VK_API_VERSION_1_3
+#define CB_GUEST_API_VERSION VK_API_VERSION_1_3
+#else
+#define CB_GUEST_API_VERSION VK_API_VERSION_1_2
+#endif
 
 /* ---- Instance-level discovery ------------------------------------------- */
 
@@ -9,7 +16,7 @@ VKAPI_ATTR VkResult VKAPI_CALL
 cb_vkEnumerateInstanceVersion(uint32_t *pApiVersion) {
     if (pApiVersion)
         *pApiVersion = cb_stub_mode_enabled() ? VK_API_VERSION_1_0
-                                              : VK_API_VERSION_1_2;
+                                              : CB_GUEST_API_VERSION;
     return VK_SUCCESS;
 }
 
@@ -173,6 +180,14 @@ cb_vkGetPhysicalDeviceProperties(VkPhysicalDevice physicalDevice,
         if (cb_pd_query(pd, CB_OP_GET_PD_PROPERTIES, &reply, &rl) == VK_SUCCESS
             && rl >= sizeof(VkPhysicalDeviceProperties)) {
             memcpy(&pd->props, reply, sizeof pd->props);
+            /*
+             * DXVK 2.7 requires a Vulkan 1.3-capable adapter. MoltenVK's
+             * host-facing version can be lower depending on how it was built,
+             * but CheeseBridge exposes a virtual guest contract and maps the
+             * supported subset over the bridge.
+             */
+            if (pd->props.apiVersion < CB_GUEST_API_VERSION)
+                pd->props.apiVersion = CB_GUEST_API_VERSION;
             pd->props_cached = true;
         }
         free(reply);
@@ -322,6 +337,62 @@ static void cb_fill_properties2_pnext(VkPhysicalDevice physicalDevice, void *pNe
                 id->deviceLUIDValid = VK_FALSE;
                 break;
             }
+#ifdef VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES
+            case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES: {
+                VkPhysicalDeviceDriverProperties *driver =
+                    (VkPhysicalDeviceDriverProperties *)out;
+#ifdef VK_DRIVER_ID_MOLTENVK
+                driver->driverID = VK_DRIVER_ID_MOLTENVK;
+#else
+                driver->driverID = VK_DRIVER_ID_DRIVER_ID_MAX_ENUM;
+#endif
+                snprintf(driver->driverName, sizeof driver->driverName,
+                         "CheeseBridge");
+                snprintf(driver->driverInfo, sizeof driver->driverInfo,
+                         "HaSe guest Vulkan bridge over MoltenVK");
+                driver->conformanceVersion.major = 1;
+                driver->conformanceVersion.minor = 3;
+                driver->conformanceVersion.subminor = 0;
+                driver->conformanceVersion.patch = 0;
+                break;
+            }
+#endif
+            default:
+                break;
+        }
+    }
+}
+
+static void cb_fill_features2_pnext(void *pNext) {
+    for (VkBaseOutStructure *out = (VkBaseOutStructure *)pNext; out; out = out->pNext) {
+        switch (out->sType) {
+#ifdef VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES
+            case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES: {
+                VkPhysicalDeviceVulkan11Features *f =
+                    (VkPhysicalDeviceVulkan11Features *)out;
+                f->shaderDrawParameters = VK_TRUE;
+                break;
+            }
+#endif
+#ifdef VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES
+            case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES: {
+                VkPhysicalDeviceVulkan12Features *f =
+                    (VkPhysicalDeviceVulkan12Features *)out;
+                f->samplerMirrorClampToEdge = VK_TRUE;
+                f->scalarBlockLayout = VK_TRUE;
+                f->uniformBufferStandardLayout = VK_TRUE;
+                f->hostQueryReset = VK_TRUE;
+                break;
+            }
+#endif
+#ifdef VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES
+            case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES: {
+                VkPhysicalDeviceVulkan13Features *f =
+                    (VkPhysicalDeviceVulkan13Features *)out;
+                f->maintenance4 = VK_TRUE;
+                break;
+            }
+#endif
             default:
                 break;
         }
@@ -333,6 +404,7 @@ cb_vkGetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
                                 VkPhysicalDeviceFeatures2 *pFeatures) {
     if (!pFeatures) return;
     cb_vkGetPhysicalDeviceFeatures(physicalDevice, &pFeatures->features);
+    cb_fill_features2_pnext(pFeatures->pNext);
 }
 
 VKAPI_ATTR void VKAPI_CALL
