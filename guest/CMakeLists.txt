@@ -20,7 +20,16 @@ if (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
         "On macOS build the host (-DCHEESEBRIDGE_BUILD_HOST=ON).")
 endif()
 
-find_package(Vulkan REQUIRED)
+option(CHEESEBRIDGE_GUEST_HEADERS_ONLY
+    "Build the guest ICD using only installed Vulkan headers"
+    OFF)
+
+if (CHEESEBRIDGE_GUEST_HEADERS_ONLY)
+    set(Vulkan_INCLUDE_DIRS "/usr/include" CACHE PATH
+        "Vulkan header include directory")
+else()
+    find_package(Vulkan REQUIRED)
+endif()
 find_package(Threads REQUIRED)
 
 add_library(cheesebridge_icd SHARED

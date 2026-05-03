@@ -86,6 +86,8 @@ DXVK install sources are tried in this order: `HASE_DXVK_DIR`, a `dxvk-*.tar.*` 
 
 Steam itself stays on Lavapipe for the Linux UI. `hasectl steam` now starts the CheeseBridge host and a VM-side Proton bridge daemon. The daemon watches Steam's installed Proton runtimes and wraps their `proton` launchers so Windows games launched from Steam inherit the CheeseBridge Vulkan environment automatically.
 
+Because HaSe runs Windows games as x86_64 processes under FEX, `hasectl install-icd` installs two guest ICD builds: a native ARM64 ICD for VM-side Vulkan tools and an x86_64 ICD for Proton/DXVK. Proton game launches prefer `/mnt/hase/vulkan/icd.d/cheesebridge_icd.x86_64.json`.
+
 ```sh
 build/hase/hasectl steam test
 ```
