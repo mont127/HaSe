@@ -184,6 +184,18 @@ cb_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice physicalDevice,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkGetPhysicalDeviceSurfaceCapabilities2KHR(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceSurfaceInfo2KHR *pSurfaceInfo,
+    VkSurfaceCapabilities2KHR *pSurfaceCapabilities) {
+    if (!pSurfaceInfo || !pSurfaceCapabilities)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    return cb_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+        physicalDevice, pSurfaceInfo->surface,
+        &pSurfaceCapabilities->surfaceCapabilities);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
 cb_vkGetPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice physicalDevice,
                                         VkSurfaceKHR surface,
                                         uint32_t *pCount,
@@ -211,6 +223,32 @@ cb_vkGetPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice physicalDevice,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkGetPhysicalDeviceSurfaceFormats2KHR(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceSurfaceInfo2KHR *pSurfaceInfo,
+    uint32_t *pSurfaceFormatCount,
+    VkSurfaceFormat2KHR *pSurfaceFormats) {
+    if (!pSurfaceInfo || !pSurfaceFormatCount)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    if (!pSurfaceFormats)
+        return cb_vkGetPhysicalDeviceSurfaceFormatsKHR(
+            physicalDevice, pSurfaceInfo->surface, pSurfaceFormatCount, NULL);
+
+    uint32_t requested = *pSurfaceFormatCount;
+    VkSurfaceFormatKHR *tmp = requested
+        ? (VkSurfaceFormatKHR *)calloc(requested, sizeof *tmp) : NULL;
+    if (requested && !tmp) return VK_ERROR_OUT_OF_HOST_MEMORY;
+
+    VkResult vr = cb_vkGetPhysicalDeviceSurfaceFormatsKHR(
+        physicalDevice, pSurfaceInfo->surface, pSurfaceFormatCount, tmp);
+    uint32_t copied = *pSurfaceFormatCount;
+    for (uint32_t i = 0; i < copied; ++i)
+        pSurfaceFormats[i].surfaceFormat = tmp[i];
+    free(tmp);
+    return vr;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
 cb_vkGetPhysicalDeviceSurfacePresentModesKHR(VkPhysicalDevice physicalDevice,
                                              VkSurfaceKHR surface,
                                              uint32_t *pCount,
@@ -233,6 +271,60 @@ cb_vkGetPhysicalDeviceSurfacePresentModesKHR(VkPhysicalDevice physicalDevice,
     *pCount = to_copy;
     free(reply);
     return (to_copy < n) ? VK_INCOMPLETE : VK_SUCCESS;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkGetDeviceGroupPresentCapabilitiesKHR(
+    VkDevice device,
+    VkDeviceGroupPresentCapabilitiesKHR *pDeviceGroupPresentCapabilities) {
+    (void)device;
+    if (!pDeviceGroupPresentCapabilities)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    for (uint32_t i = 0; i < VK_MAX_DEVICE_GROUP_SIZE; ++i)
+        pDeviceGroupPresentCapabilities->presentMask[i] = 0;
+    pDeviceGroupPresentCapabilities->presentMask[0] = 1;
+    pDeviceGroupPresentCapabilities->modes =
+        VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_BIT_KHR;
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkGetDeviceGroupSurfacePresentModesKHR(
+    VkDevice device,
+    VkSurfaceKHR surface,
+    VkDeviceGroupPresentModeFlagsKHR *pModes) {
+    (void)device;
+    (void)surface;
+    if (!pModes) return VK_ERROR_INITIALIZATION_FAILED;
+    *pModes = VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_BIT_KHR;
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkGetPhysicalDevicePresentRectanglesKHR(VkPhysicalDevice physicalDevice,
+                                           VkSurfaceKHR surface,
+                                           uint32_t *pRectCount,
+                                           VkRect2D *pRects) {
+    if (!pRectCount) return VK_ERROR_INITIALIZATION_FAILED;
+    if (!pRects) {
+        *pRectCount = 1;
+        return VK_SUCCESS;
+    }
+
+    VkSurfaceCapabilitiesKHR caps;
+    VkResult vr = cb_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+        physicalDevice, surface, &caps);
+    if (vr != VK_SUCCESS) return vr;
+    if (*pRectCount == 0) return VK_INCOMPLETE;
+    pRects[0].offset.x = 0;
+    pRects[0].offset.y = 0;
+    pRects[0].extent = caps.currentExtent;
+    if (pRects[0].extent.width == UINT32_MAX) {
+        pRects[0].extent.width = caps.minImageExtent.width;
+        pRects[0].extent.height = caps.minImageExtent.height;
+    }
+    *pRectCount = 1;
+    return VK_SUCCESS;
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
@@ -359,4 +451,16 @@ cb_vkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain,
     if (rl >= sizeof(uint32_t)) memcpy(pImageIndex, reply, sizeof(uint32_t));
     free(reply);
     return vr;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkAcquireNextImage2KHR(VkDevice device,
+                          const VkAcquireNextImageInfoKHR *pAcquireInfo,
+                          uint32_t *pImageIndex) {
+    if (!pAcquireInfo) return VK_ERROR_INITIALIZATION_FAILED;
+    return cb_vkAcquireNextImageKHR(device, pAcquireInfo->swapchain,
+                                    pAcquireInfo->timeout,
+                                    pAcquireInfo->semaphore,
+                                    pAcquireInfo->fence,
+                                    pImageIndex);
 }

@@ -113,6 +113,17 @@ cb_vkGetDeviceQueue(VkDevice device, uint32_t family, uint32_t index,
     *pQueue = (VkQueue)q;
 }
 
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetDeviceQueue2(VkDevice device, const VkDeviceQueueInfo2 *pQueueInfo,
+                     VkQueue *pQueue) {
+    if (!pQueueInfo) {
+        if (pQueue) *pQueue = VK_NULL_HANDLE;
+        return;
+    }
+    cb_vkGetDeviceQueue(device, pQueueInfo->queueFamilyIndex,
+                        pQueueInfo->queueIndex, pQueue);
+}
+
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkDeviceWaitIdle(VkDevice device) {
     cb_device_t *dev = (cb_device_t *)device;
     cb_writer_t w; cb_writer_init_heap(&w, 16);

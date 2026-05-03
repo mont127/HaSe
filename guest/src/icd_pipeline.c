@@ -83,6 +83,31 @@ cb_vkDestroyPipelineCache(VkDevice device, VkPipelineCache cache,
     free(c);
 }
 
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkGetPipelineCacheData(VkDevice device, VkPipelineCache cache,
+                          size_t *pDataSize, void *pData) {
+    (void)device;
+    (void)cache;
+    if (!pDataSize) return VK_ERROR_INITIALIZATION_FAILED;
+    if (!pData) {
+        *pDataSize = 0;
+        return VK_SUCCESS;
+    }
+    *pDataSize = 0;
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkMergePipelineCaches(VkDevice device, VkPipelineCache dstCache,
+                         uint32_t srcCacheCount,
+                         const VkPipelineCache *pSrcCaches) {
+    (void)device;
+    (void)dstCache;
+    (void)srcCacheCount;
+    (void)pSrcCaches;
+    return VK_SUCCESS;
+}
+
 /* ---- Descriptor set layout ---------------------------------------------- */
 
 VKAPI_ATTR VkResult VKAPI_CALL
@@ -185,6 +210,15 @@ cb_vkDestroyDescriptorPool(VkDevice device, VkDescriptorPool pool,
     cb_rpc_send_async(CB_OP_DESTROY_DESC_POOL, w.buf, (uint32_t)w.pos);
     cb_writer_dispose(&w);
     free(p);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkResetDescriptorPool(VkDevice device, VkDescriptorPool pool,
+                         VkDescriptorPoolResetFlags flags) {
+    (void)device;
+    (void)pool;
+    (void)flags;
+    return VK_SUCCESS;
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
@@ -451,6 +485,141 @@ cb_vkDestroyRenderPass(VkDevice device, VkRenderPass rp,
     cb_rpc_send_async(CB_OP_DESTROY_RENDER_PASS, w.buf, (uint32_t)w.pos);
     cb_writer_dispose(&w);
     free(r);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkCreateRenderPass2(VkDevice device, const VkRenderPassCreateInfo2 *info,
+                       const VkAllocationCallbacks *pAllocator,
+                       VkRenderPass *pRenderPass) {
+    if (!info) return VK_ERROR_INITIALIZATION_FAILED;
+
+    VkAttachmentDescription *atts = info->attachmentCount
+        ? (VkAttachmentDescription *)calloc(info->attachmentCount, sizeof *atts) : NULL;
+    VkSubpassDescription *subs = info->subpassCount
+        ? (VkSubpassDescription *)calloc(info->subpassCount, sizeof *subs) : NULL;
+    VkSubpassDependency *deps = info->dependencyCount
+        ? (VkSubpassDependency *)calloc(info->dependencyCount, sizeof *deps) : NULL;
+    VkAttachmentReference **input_refs = info->subpassCount
+        ? (VkAttachmentReference **)calloc(info->subpassCount, sizeof *input_refs) : NULL;
+    VkAttachmentReference **color_refs = info->subpassCount
+        ? (VkAttachmentReference **)calloc(info->subpassCount, sizeof *color_refs) : NULL;
+    VkAttachmentReference **resolve_refs = info->subpassCount
+        ? (VkAttachmentReference **)calloc(info->subpassCount, sizeof *resolve_refs) : NULL;
+    VkAttachmentReference **depth_refs = info->subpassCount
+        ? (VkAttachmentReference **)calloc(info->subpassCount, sizeof *depth_refs) : NULL;
+
+    if ((info->attachmentCount && !atts) || (info->subpassCount && !subs) ||
+        (info->dependencyCount && !deps) ||
+        (info->subpassCount && (!input_refs || !color_refs || !resolve_refs || !depth_refs))) {
+        free(atts); free(subs); free(deps);
+        free(input_refs); free(color_refs); free(resolve_refs); free(depth_refs);
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+
+    for (uint32_t i = 0; i < info->attachmentCount; ++i) {
+        const VkAttachmentDescription2 *a = &info->pAttachments[i];
+        atts[i].flags = a->flags;
+        atts[i].format = a->format;
+        atts[i].samples = a->samples;
+        atts[i].loadOp = a->loadOp;
+        atts[i].storeOp = a->storeOp;
+        atts[i].stencilLoadOp = a->stencilLoadOp;
+        atts[i].stencilStoreOp = a->stencilStoreOp;
+        atts[i].initialLayout = a->initialLayout;
+        atts[i].finalLayout = a->finalLayout;
+    }
+
+    for (uint32_t i = 0; i < info->subpassCount; ++i) {
+        const VkSubpassDescription2 *s = &info->pSubpasses[i];
+        subs[i].flags = s->flags;
+        subs[i].pipelineBindPoint = s->pipelineBindPoint;
+        subs[i].inputAttachmentCount = s->inputAttachmentCount;
+        if (s->inputAttachmentCount) {
+            input_refs[i] = (VkAttachmentReference *)calloc(s->inputAttachmentCount, sizeof(VkAttachmentReference));
+            if (!input_refs[i]) goto oom;
+            for (uint32_t j = 0; j < s->inputAttachmentCount; ++j) {
+                input_refs[i][j].attachment = s->pInputAttachments[j].attachment;
+                input_refs[i][j].layout = s->pInputAttachments[j].layout;
+            }
+            subs[i].pInputAttachments = input_refs[i];
+        }
+        subs[i].colorAttachmentCount = s->colorAttachmentCount;
+        if (s->colorAttachmentCount) {
+            color_refs[i] = (VkAttachmentReference *)calloc(s->colorAttachmentCount, sizeof(VkAttachmentReference));
+            if (!color_refs[i]) goto oom;
+            for (uint32_t j = 0; j < s->colorAttachmentCount; ++j) {
+                color_refs[i][j].attachment = s->pColorAttachments[j].attachment;
+                color_refs[i][j].layout = s->pColorAttachments[j].layout;
+            }
+            subs[i].pColorAttachments = color_refs[i];
+            if (s->pResolveAttachments) {
+                resolve_refs[i] = (VkAttachmentReference *)calloc(s->colorAttachmentCount, sizeof(VkAttachmentReference));
+                if (!resolve_refs[i]) goto oom;
+                for (uint32_t j = 0; j < s->colorAttachmentCount; ++j) {
+                    resolve_refs[i][j].attachment = s->pResolveAttachments[j].attachment;
+                    resolve_refs[i][j].layout = s->pResolveAttachments[j].layout;
+                }
+                subs[i].pResolveAttachments = resolve_refs[i];
+            }
+        }
+        if (s->pDepthStencilAttachment) {
+            depth_refs[i] = (VkAttachmentReference *)calloc(1, sizeof(VkAttachmentReference));
+            if (!depth_refs[i]) goto oom;
+            depth_refs[i]->attachment = s->pDepthStencilAttachment->attachment;
+            depth_refs[i]->layout = s->pDepthStencilAttachment->layout;
+            subs[i].pDepthStencilAttachment = depth_refs[i];
+        }
+        subs[i].preserveAttachmentCount = s->preserveAttachmentCount;
+        subs[i].pPreserveAttachments = s->pPreserveAttachments;
+    }
+
+    for (uint32_t i = 0; i < info->dependencyCount; ++i) {
+        const VkSubpassDependency2 *d = &info->pDependencies[i];
+        deps[i].srcSubpass = d->srcSubpass;
+        deps[i].dstSubpass = d->dstSubpass;
+        deps[i].srcStageMask = d->srcStageMask;
+        deps[i].dstStageMask = d->dstStageMask;
+        deps[i].srcAccessMask = d->srcAccessMask;
+        deps[i].dstAccessMask = d->dstAccessMask;
+        deps[i].dependencyFlags = d->dependencyFlags;
+    }
+
+    VkRenderPassCreateInfo ci = {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .flags = info->flags,
+        .attachmentCount = info->attachmentCount,
+        .pAttachments = atts,
+        .subpassCount = info->subpassCount,
+        .pSubpasses = subs,
+        .dependencyCount = info->dependencyCount,
+        .pDependencies = deps,
+    };
+    VkResult vr = cb_vkCreateRenderPass(device, &ci, pAllocator, pRenderPass);
+    for (uint32_t i = 0; i < info->subpassCount; ++i) {
+        free(input_refs[i]); free(color_refs[i]);
+        free(resolve_refs[i]); free(depth_refs[i]);
+    }
+    free(atts); free(subs); free(deps);
+    free(input_refs); free(color_refs); free(resolve_refs); free(depth_refs);
+    return vr;
+
+oom:
+    for (uint32_t i = 0; i < info->subpassCount; ++i) {
+        free(input_refs ? input_refs[i] : NULL);
+        free(color_refs ? color_refs[i] : NULL);
+        free(resolve_refs ? resolve_refs[i] : NULL);
+        free(depth_refs ? depth_refs[i] : NULL);
+    }
+    free(atts); free(subs); free(deps);
+    free(input_refs); free(color_refs); free(resolve_refs); free(depth_refs);
+    return VK_ERROR_OUT_OF_HOST_MEMORY;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkCreateRenderPass2KHR(VkDevice device, const VkRenderPassCreateInfo2 *info,
+                          const VkAllocationCallbacks *pAllocator,
+                          VkRenderPass *pRenderPass) {
+    return cb_vkCreateRenderPass2(device, info, pAllocator, pRenderPass);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL

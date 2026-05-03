@@ -30,9 +30,11 @@ static const VkExtensionProperties g_inst_exts[] = {
     { "VK_KHR_xlib_surface",                          6 },
     { "VK_KHR_xcb_surface",                           6 },
     { VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, 2 },
+    { VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,       1 },
     { VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME,     1 },
     { VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME,  1 },
     { VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME,      1 },
+    { VK_EXT_DEBUG_UTILS_EXTENSION_NAME,                       2 },
     { "VK_CHEESEBRIDGE_host_surface",                 1 },
 };
 
@@ -562,6 +564,10 @@ cb_vkEnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice,
      * it dynamically here. Add to taste. */
     static const VkExtensionProperties exts[] = {
         { VK_KHR_SWAPCHAIN_EXTENSION_NAME, 70 },
+        { VK_KHR_BIND_MEMORY_2_EXTENSION_NAME, 1 },
+        { VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME, 1 },
+        { VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, 3 },
+        { VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME, 1 },
         { VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME, 1 },
         { VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME, 1 },
         { VK_KHR_EXTERNAL_FENCE_EXTENSION_NAME, 1 },

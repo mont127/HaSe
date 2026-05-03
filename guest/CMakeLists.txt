@@ -40,6 +40,7 @@ add_library(cheesebridge_icd SHARED
     src/icd_loader.c
     src/icd_instance.c
     src/icd_device.c
+    src/icd_debug.c
     src/icd_memory.c
     src/icd_pipeline.c
     src/icd_command.c

@@ -55,8 +55,21 @@ VKAPI_ATTR VkResult VKAPI_CALL cb_vkEnumerateDeviceLayerProperties(VkPhysicalDev
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateDevice(VkPhysicalDevice, const VkDeviceCreateInfo *, const VkAllocationCallbacks *, VkDevice *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyDevice(VkDevice, const VkAllocationCallbacks *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkGetDeviceQueue(VkDevice, uint32_t, uint32_t, VkQueue *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetDeviceQueue2(VkDevice, const VkDeviceQueueInfo2 *, VkQueue *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkDeviceWaitIdle(VkDevice);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkQueueWaitIdle(VkQueue);
+
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateDebugUtilsMessengerEXT(VkInstance, const VkDebugUtilsMessengerCreateInfoEXT *, const VkAllocationCallbacks *, VkDebugUtilsMessengerEXT *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyDebugUtilsMessengerEXT(VkInstance, VkDebugUtilsMessengerEXT, const VkAllocationCallbacks *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkSubmitDebugUtilsMessageEXT(VkInstance, VkDebugUtilsMessageSeverityFlagBitsEXT, VkDebugUtilsMessageTypeFlagsEXT, const VkDebugUtilsMessengerCallbackDataEXT *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkSetDebugUtilsObjectNameEXT(VkDevice, const VkDebugUtilsObjectNameInfoEXT *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkSetDebugUtilsObjectTagEXT(VkDevice, const VkDebugUtilsObjectTagInfoEXT *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkQueueBeginDebugUtilsLabelEXT(VkQueue, const VkDebugUtilsLabelEXT *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkQueueEndDebugUtilsLabelEXT(VkQueue);
+VKAPI_ATTR void     VKAPI_CALL cb_vkQueueInsertDebugUtilsLabelEXT(VkQueue, const VkDebugUtilsLabelEXT *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkCmdBeginDebugUtilsLabelEXT(VkCommandBuffer, const VkDebugUtilsLabelEXT *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkCmdEndDebugUtilsLabelEXT(VkCommandBuffer);
+VKAPI_ATTR void     VKAPI_CALL cb_vkCmdInsertDebugUtilsLabelEXT(VkCommandBuffer, const VkDebugUtilsLabelEXT *);
 
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkAllocateMemory(VkDevice, const VkMemoryAllocateInfo *, const VkAllocationCallbacks *, VkDeviceMemory *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkFreeMemory(VkDevice, VkDeviceMemory, const VkAllocationCallbacks *);
@@ -68,12 +81,25 @@ VKAPI_ATTR VkResult VKAPI_CALL cb_vkInvalidateMappedMemoryRanges(VkDevice, uint3
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateBuffer(VkDevice, const VkBufferCreateInfo *, const VkAllocationCallbacks *, VkBuffer *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyBuffer(VkDevice, VkBuffer, const VkAllocationCallbacks *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkGetBufferMemoryRequirements(VkDevice, VkBuffer, VkMemoryRequirements *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetBufferMemoryRequirements2(VkDevice, const VkBufferMemoryRequirementsInfo2 *, VkMemoryRequirements2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetBufferMemoryRequirements2KHR(VkDevice, const VkBufferMemoryRequirementsInfo2 *, VkMemoryRequirements2 *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkBindBufferMemory(VkDevice, VkBuffer, VkDeviceMemory, VkDeviceSize);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkBindBufferMemory2(VkDevice, uint32_t, const VkBindBufferMemoryInfo *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkBindBufferMemory2KHR(VkDevice, uint32_t, const VkBindBufferMemoryInfo *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateBufferView(VkDevice, const VkBufferViewCreateInfo *, const VkAllocationCallbacks *, VkBufferView *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyBufferView(VkDevice, VkBufferView, const VkAllocationCallbacks *);
 
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateImage(VkDevice, const VkImageCreateInfo *, const VkAllocationCallbacks *, VkImage *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyImage(VkDevice, VkImage, const VkAllocationCallbacks *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkGetImageMemoryRequirements(VkDevice, VkImage, VkMemoryRequirements *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetImageMemoryRequirements2(VkDevice, const VkImageMemoryRequirementsInfo2 *, VkMemoryRequirements2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetImageMemoryRequirements2KHR(VkDevice, const VkImageMemoryRequirementsInfo2 *, VkMemoryRequirements2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetImageSparseMemoryRequirements(VkDevice, VkImage, uint32_t *, VkSparseImageMemoryRequirements *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetImageSparseMemoryRequirements2(VkDevice, const VkImageSparseMemoryRequirementsInfo2 *, uint32_t *, VkSparseImageMemoryRequirements2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetImageSparseMemoryRequirements2KHR(VkDevice, const VkImageSparseMemoryRequirementsInfo2 *, uint32_t *, VkSparseImageMemoryRequirements2 *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkBindImageMemory(VkDevice, VkImage, VkDeviceMemory, VkDeviceSize);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkBindImageMemory2(VkDevice, uint32_t, const VkBindImageMemoryInfo *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkBindImageMemory2KHR(VkDevice, uint32_t, const VkBindImageMemoryInfo *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateImageView(VkDevice, const VkImageViewCreateInfo *, const VkAllocationCallbacks *, VkImageView *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyImageView(VkDevice, VkImageView, const VkAllocationCallbacks *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateSampler(VkDevice, const VkSamplerCreateInfo *, const VkAllocationCallbacks *, VkSampler *);
@@ -88,9 +114,13 @@ VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateComputePipelines(VkDevice, VkPipelineC
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyPipeline(VkDevice, VkPipeline, const VkAllocationCallbacks *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreatePipelineCache(VkDevice, const VkPipelineCacheCreateInfo *, const VkAllocationCallbacks *, VkPipelineCache *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyPipelineCache(VkDevice, VkPipelineCache, const VkAllocationCallbacks *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPipelineCacheData(VkDevice, VkPipelineCache, size_t *, void *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkMergePipelineCaches(VkDevice, VkPipelineCache, uint32_t, const VkPipelineCache *);
 
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateRenderPass(VkDevice, const VkRenderPassCreateInfo *, const VkAllocationCallbacks *, VkRenderPass *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyRenderPass(VkDevice, VkRenderPass, const VkAllocationCallbacks *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateRenderPass2(VkDevice, const VkRenderPassCreateInfo2 *, const VkAllocationCallbacks *, VkRenderPass *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateRenderPass2KHR(VkDevice, const VkRenderPassCreateInfo2 *, const VkAllocationCallbacks *, VkRenderPass *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateFramebuffer(VkDevice, const VkFramebufferCreateInfo *, const VkAllocationCallbacks *, VkFramebuffer *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyFramebuffer(VkDevice, VkFramebuffer, const VkAllocationCallbacks *);
 
@@ -98,6 +128,7 @@ VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateDescriptorSetLayout(VkDevice, const Vk
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyDescriptorSetLayout(VkDevice, VkDescriptorSetLayout, const VkAllocationCallbacks *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateDescriptorPool(VkDevice, const VkDescriptorPoolCreateInfo *, const VkAllocationCallbacks *, VkDescriptorPool *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyDescriptorPool(VkDevice, VkDescriptorPool, const VkAllocationCallbacks *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkResetDescriptorPool(VkDevice, VkDescriptorPool, VkDescriptorPoolResetFlags);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkAllocateDescriptorSets(VkDevice, const VkDescriptorSetAllocateInfo *, VkDescriptorSet *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkFreeDescriptorSets(VkDevice, VkDescriptorPool, uint32_t, const VkDescriptorSet *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkUpdateDescriptorSets(VkDevice, uint32_t, const VkWriteDescriptorSet *, uint32_t, const VkCopyDescriptorSet *);
@@ -139,11 +170,41 @@ VKAPI_ATTR void VKAPI_CALL cb_vkCmdCopyImage(VkCommandBuffer, VkImage, VkImageLa
 VKAPI_ATTR void VKAPI_CALL cb_vkCmdCopyBufferToImage(VkCommandBuffer, VkBuffer, VkImage, VkImageLayout, uint32_t, const VkBufferImageCopy *);
 VKAPI_ATTR void VKAPI_CALL cb_vkCmdCopyImageToBuffer(VkCommandBuffer, VkImage, VkImageLayout, VkBuffer, uint32_t, const VkBufferImageCopy *);
 VKAPI_ATTR void VKAPI_CALL cb_vkCmdBlitImage(VkCommandBuffer, VkImage, VkImageLayout, VkImage, VkImageLayout, uint32_t, const VkImageBlit *, VkFilter);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdResolveImage(VkCommandBuffer, VkImage, VkImageLayout, VkImage, VkImageLayout, uint32_t, const VkImageResolve *);
 VKAPI_ATTR void VKAPI_CALL cb_vkCmdPipelineBarrier(VkCommandBuffer, VkPipelineStageFlags, VkPipelineStageFlags, VkDependencyFlags, uint32_t, const VkMemoryBarrier *, uint32_t, const VkBufferMemoryBarrier *, uint32_t, const VkImageMemoryBarrier *);
 VKAPI_ATTR void VKAPI_CALL cb_vkCmdClearColorImage(VkCommandBuffer, VkImage, VkImageLayout, const VkClearColorValue *, uint32_t, const VkImageSubresourceRange *);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdClearDepthStencilImage(VkCommandBuffer, VkImage, VkImageLayout, const VkClearDepthStencilValue *, uint32_t, const VkImageSubresourceRange *);
 VKAPI_ATTR void VKAPI_CALL cb_vkCmdClearAttachments(VkCommandBuffer, uint32_t, const VkClearAttachment *, uint32_t, const VkClearRect *);
 VKAPI_ATTR void VKAPI_CALL cb_vkCmdFillBuffer(VkCommandBuffer, VkBuffer, VkDeviceSize, VkDeviceSize, uint32_t);
 VKAPI_ATTR void VKAPI_CALL cb_vkCmdUpdateBuffer(VkCommandBuffer, VkBuffer, VkDeviceSize, VkDeviceSize, const void *);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdExecuteCommands(VkCommandBuffer, uint32_t, const VkCommandBuffer *);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdBeginQuery(VkCommandBuffer, VkQueryPool, uint32_t, VkQueryControlFlags);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdEndQuery(VkCommandBuffer, VkQueryPool, uint32_t);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdResetQueryPool(VkCommandBuffer, VkQueryPool, uint32_t, uint32_t);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdWriteTimestamp(VkCommandBuffer, VkPipelineStageFlagBits, VkQueryPool, uint32_t);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdCopyQueryPoolResults(VkCommandBuffer, VkQueryPool, uint32_t, uint32_t, VkBuffer, VkDeviceSize, VkDeviceSize, VkQueryResultFlags);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdSetDepthBounds(VkCommandBuffer, float, float);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdSetEvent(VkCommandBuffer, VkEvent, VkPipelineStageFlags);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdResetEvent(VkCommandBuffer, VkEvent, VkPipelineStageFlags);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdWaitEvents(VkCommandBuffer, uint32_t, const VkEvent *, VkPipelineStageFlags, VkPipelineStageFlags, uint32_t, const VkMemoryBarrier *, uint32_t, const VkBufferMemoryBarrier *, uint32_t, const VkImageMemoryBarrier *);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdBeginRenderPass2(VkCommandBuffer, const VkRenderPassBeginInfo *, const VkSubpassBeginInfo *);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdBeginRenderPass2KHR(VkCommandBuffer, const VkRenderPassBeginInfo *, const VkSubpassBeginInfo *);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdNextSubpass2(VkCommandBuffer, const VkSubpassBeginInfo *, const VkSubpassEndInfo *);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdNextSubpass2KHR(VkCommandBuffer, const VkSubpassBeginInfo *, const VkSubpassEndInfo *);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdEndRenderPass2(VkCommandBuffer, const VkSubpassEndInfo *);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdEndRenderPass2KHR(VkCommandBuffer, const VkSubpassEndInfo *);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdSetViewportWithCount(VkCommandBuffer, uint32_t, const VkViewport *);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdSetScissorWithCount(VkCommandBuffer, uint32_t, const VkRect2D *);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdBindVertexBuffers2(VkCommandBuffer, uint32_t, uint32_t, const VkBuffer *, const VkDeviceSize *, const VkDeviceSize *, const VkDeviceSize *);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdSetCullMode(VkCommandBuffer, VkCullModeFlags);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdSetFrontFace(VkCommandBuffer, VkFrontFace);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdSetPrimitiveTopology(VkCommandBuffer, VkPrimitiveTopology);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdSetDepthTestEnable(VkCommandBuffer, VkBool32);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdSetDepthWriteEnable(VkCommandBuffer, VkBool32);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdSetDepthCompareOp(VkCommandBuffer, VkCompareOp);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdSetDepthBoundsTestEnable(VkCommandBuffer, VkBool32);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdSetStencilTestEnable(VkCommandBuffer, VkBool32);
+VKAPI_ATTR void VKAPI_CALL cb_vkCmdSetStencilOp(VkCommandBuffer, VkStencilFaceFlags, VkStencilOp, VkStencilOp, VkStencilOp, VkCompareOp);
 
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateFence(VkDevice, const VkFenceCreateInfo *, const VkAllocationCallbacks *, VkFence *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyFence(VkDevice, VkFence, const VkAllocationCallbacks *);
@@ -154,6 +215,13 @@ VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateSemaphore(VkDevice, const VkSemaphoreC
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroySemaphore(VkDevice, VkSemaphore, const VkAllocationCallbacks *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateEvent(VkDevice, const VkEventCreateInfo *, const VkAllocationCallbacks *, VkEvent *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyEvent(VkDevice, VkEvent, const VkAllocationCallbacks *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetEventStatus(VkDevice, VkEvent);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkSetEvent(VkDevice, VkEvent);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkResetEvent(VkDevice, VkEvent);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateQueryPool(VkDevice, const VkQueryPoolCreateInfo *, const VkAllocationCallbacks *, VkQueryPool *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkDestroyQueryPool(VkDevice, VkQueryPool, const VkAllocationCallbacks *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetQueryPoolResults(VkDevice, VkQueryPool, uint32_t, uint32_t, size_t, void *, VkDeviceSize, VkQueryResultFlags);
+VKAPI_ATTR void     VKAPI_CALL cb_vkResetQueryPool(VkDevice, VkQueryPool, uint32_t, uint32_t);
 
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkQueueSubmit(VkQueue, uint32_t, const VkSubmitInfo *, VkFence);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkQueuePresentKHR(VkQueue, const VkPresentInfoKHR *);
@@ -161,8 +229,13 @@ VKAPI_ATTR VkResult VKAPI_CALL cb_vkQueuePresentKHR(VkQueue, const VkPresentInfo
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroySurfaceKHR(VkInstance, VkSurfaceKHR, const VkAllocationCallbacks *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceSurfaceSupportKHR(VkPhysicalDevice, uint32_t, VkSurfaceKHR, VkBool32 *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice, VkSurfaceKHR, VkSurfaceCapabilitiesKHR *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *, VkSurfaceCapabilities2KHR *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice, VkSurfaceKHR, uint32_t *, VkSurfaceFormatKHR *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceSurfaceFormats2KHR(VkPhysicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *, uint32_t *, VkSurfaceFormat2KHR *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceSurfacePresentModesKHR(VkPhysicalDevice, VkSurfaceKHR, uint32_t *, VkPresentModeKHR *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetDeviceGroupPresentCapabilitiesKHR(VkDevice, VkDeviceGroupPresentCapabilitiesKHR *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetDeviceGroupSurfacePresentModesKHR(VkDevice, VkSurfaceKHR, VkDeviceGroupPresentModeFlagsKHR *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDevicePresentRectanglesKHR(VkPhysicalDevice, VkSurfaceKHR, uint32_t *, VkRect2D *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateSwapchainKHR(VkDevice, const VkSwapchainCreateInfoKHR *, const VkAllocationCallbacks *, VkSwapchainKHR *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateCheeseBridgeSurfaceKHR(VkInstance, uint32_t, uint32_t, VkSurfaceKHR *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkCreateXlibSurfaceKHR(VkInstance, const void *, const VkAllocationCallbacks *, VkSurfaceKHR *);
@@ -172,6 +245,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL cb_vkGetPhysicalDeviceXcbPresentationSupportKHR(V
 VKAPI_ATTR void     VKAPI_CALL cb_vkDestroySwapchainKHR(VkDevice, VkSwapchainKHR, const VkAllocationCallbacks *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetSwapchainImagesKHR(VkDevice, VkSwapchainKHR, uint32_t *, VkImage *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkAcquireNextImageKHR(VkDevice, VkSwapchainKHR, uint64_t, VkSemaphore, VkFence, uint32_t *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkAcquireNextImage2KHR(VkDevice, const VkAcquireNextImageInfoKHR *, uint32_t *);
 
 /* GetInstanceProcAddr / GetDeviceProcAddr themselves */
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL cb_vkGetInstanceProcAddr(VkInstance, const char *);
@@ -232,8 +306,21 @@ static const struct cb_proc_entry g_procs[] = {
     E_INST(vkCreateDevice),
     E_DEV (vkDestroyDevice),
     E_DEV (vkGetDeviceQueue),
+    E_DEV (vkGetDeviceQueue2),
     E_DEV (vkDeviceWaitIdle),
     E_DEV (vkQueueWaitIdle),
+
+    E_INST(vkCreateDebugUtilsMessengerEXT),
+    E_INST(vkDestroyDebugUtilsMessengerEXT),
+    E_INST(vkSubmitDebugUtilsMessageEXT),
+    E_DEV (vkSetDebugUtilsObjectNameEXT),
+    E_DEV (vkSetDebugUtilsObjectTagEXT),
+    E_DEV (vkQueueBeginDebugUtilsLabelEXT),
+    E_DEV (vkQueueEndDebugUtilsLabelEXT),
+    E_DEV (vkQueueInsertDebugUtilsLabelEXT),
+    E_DEV (vkCmdBeginDebugUtilsLabelEXT),
+    E_DEV (vkCmdEndDebugUtilsLabelEXT),
+    E_DEV (vkCmdInsertDebugUtilsLabelEXT),
 
     E_DEV (vkAllocateMemory),  E_DEV (vkFreeMemory),
     E_DEV (vkMapMemory),       E_DEV (vkUnmapMemory),
@@ -242,10 +329,23 @@ static const struct cb_proc_entry g_procs[] = {
 
     E_DEV (vkCreateBuffer),    E_DEV (vkDestroyBuffer),
     E_DEV (vkGetBufferMemoryRequirements),
+    E_DEV (vkGetBufferMemoryRequirements2),
+    E_DEV (vkGetBufferMemoryRequirements2KHR),
     E_DEV (vkBindBufferMemory),
+    E_DEV (vkBindBufferMemory2),
+    E_DEV (vkBindBufferMemory2KHR),
+    E_DEV (vkCreateBufferView),
+    E_DEV (vkDestroyBufferView),
     E_DEV (vkCreateImage),     E_DEV (vkDestroyImage),
     E_DEV (vkGetImageMemoryRequirements),
+    E_DEV (vkGetImageMemoryRequirements2),
+    E_DEV (vkGetImageMemoryRequirements2KHR),
+    E_DEV (vkGetImageSparseMemoryRequirements),
+    E_DEV (vkGetImageSparseMemoryRequirements2),
+    E_DEV (vkGetImageSparseMemoryRequirements2KHR),
     E_DEV (vkBindImageMemory),
+    E_DEV (vkBindImageMemory2),
+    E_DEV (vkBindImageMemory2KHR),
     E_DEV (vkCreateImageView), E_DEV (vkDestroyImageView),
     E_DEV (vkCreateSampler),   E_DEV (vkDestroySampler),
 
@@ -255,12 +355,17 @@ static const struct cb_proc_entry g_procs[] = {
     E_DEV (vkCreateComputePipelines),
     E_DEV (vkDestroyPipeline),
     E_DEV (vkCreatePipelineCache),   E_DEV (vkDestroyPipelineCache),
+    E_DEV (vkGetPipelineCacheData),
+    E_DEV (vkMergePipelineCaches),
 
     E_DEV (vkCreateRenderPass),  E_DEV (vkDestroyRenderPass),
+    E_DEV (vkCreateRenderPass2),
+    E_DEV (vkCreateRenderPass2KHR),
     E_DEV (vkCreateFramebuffer), E_DEV (vkDestroyFramebuffer),
 
     E_DEV (vkCreateDescriptorSetLayout),  E_DEV (vkDestroyDescriptorSetLayout),
     E_DEV (vkCreateDescriptorPool),       E_DEV (vkDestroyDescriptorPool),
+    E_DEV (vkResetDescriptorPool),
     E_DEV (vkAllocateDescriptorSets),     E_DEV (vkFreeDescriptorSets),
     E_DEV (vkUpdateDescriptorSets),
 
@@ -286,15 +391,43 @@ static const struct cb_proc_entry g_procs[] = {
     E_DEV (vkCmdDispatch),         E_DEV (vkCmdDispatchIndirect),
     E_DEV (vkCmdCopyBuffer),       E_DEV (vkCmdCopyImage),
     E_DEV (vkCmdCopyBufferToImage),E_DEV (vkCmdCopyImageToBuffer),
-    E_DEV (vkCmdBlitImage),        E_DEV (vkCmdPipelineBarrier),
-    E_DEV (vkCmdClearColorImage),  E_DEV (vkCmdClearAttachments),
+    E_DEV (vkCmdBlitImage),        E_DEV (vkCmdResolveImage),
+    E_DEV (vkCmdPipelineBarrier),
+    E_DEV (vkCmdClearColorImage),  E_DEV (vkCmdClearDepthStencilImage),
+    E_DEV (vkCmdClearAttachments),
     E_DEV (vkCmdFillBuffer),       E_DEV (vkCmdUpdateBuffer),
+    E_DEV (vkCmdExecuteCommands),
+    E_DEV (vkCmdBeginQuery),       E_DEV (vkCmdEndQuery),
+    E_DEV (vkCmdResetQueryPool),   E_DEV (vkCmdWriteTimestamp),
+    E_DEV (vkCmdCopyQueryPoolResults),
+    E_DEV (vkCmdSetDepthBounds),
+    E_DEV (vkCmdSetEvent),         E_DEV (vkCmdResetEvent),
+    E_DEV (vkCmdWaitEvents),
+    E_DEV (vkCmdBeginRenderPass2), E_DEV (vkCmdBeginRenderPass2KHR),
+    E_DEV (vkCmdNextSubpass2),     E_DEV (vkCmdNextSubpass2KHR),
+    E_DEV (vkCmdEndRenderPass2),   E_DEV (vkCmdEndRenderPass2KHR),
+    E_DEV (vkCmdSetViewportWithCount),
+    E_DEV (vkCmdSetScissorWithCount),
+    E_DEV (vkCmdBindVertexBuffers2),
+    E_DEV (vkCmdSetCullMode),      E_DEV (vkCmdSetFrontFace),
+    E_DEV (vkCmdSetPrimitiveTopology),
+    E_DEV (vkCmdSetDepthTestEnable),
+    E_DEV (vkCmdSetDepthWriteEnable),
+    E_DEV (vkCmdSetDepthCompareOp),
+    E_DEV (vkCmdSetDepthBoundsTestEnable),
+    E_DEV (vkCmdSetStencilTestEnable),
+    E_DEV (vkCmdSetStencilOp),
 
     E_DEV (vkCreateFence),     E_DEV (vkDestroyFence),
     E_DEV (vkWaitForFences),   E_DEV (vkResetFences),
     E_DEV (vkGetFenceStatus),
     E_DEV (vkCreateSemaphore), E_DEV (vkDestroySemaphore),
     E_DEV (vkCreateEvent),     E_DEV (vkDestroyEvent),
+    E_DEV (vkGetEventStatus),  E_DEV (vkSetEvent),
+    E_DEV (vkResetEvent),
+    E_DEV (vkCreateQueryPool), E_DEV (vkDestroyQueryPool),
+    E_DEV (vkGetQueryPoolResults),
+    E_DEV (vkResetQueryPool),
 
     E_DEV (vkQueueSubmit),
     E_DEV (vkQueuePresentKHR),
@@ -302,15 +435,21 @@ static const struct cb_proc_entry g_procs[] = {
     E_INST(vkDestroySurfaceKHR),
     E_INST(vkGetPhysicalDeviceSurfaceSupportKHR),
     E_INST(vkGetPhysicalDeviceSurfaceCapabilitiesKHR),
+    E_INST(vkGetPhysicalDeviceSurfaceCapabilities2KHR),
     E_INST(vkGetPhysicalDeviceSurfaceFormatsKHR),
+    E_INST(vkGetPhysicalDeviceSurfaceFormats2KHR),
     E_INST(vkGetPhysicalDeviceSurfacePresentModesKHR),
+    E_INST(vkGetPhysicalDevicePresentRectanglesKHR),
     E_INST(vkCreateXlibSurfaceKHR),
     E_INST(vkGetPhysicalDeviceXlibPresentationSupportKHR),
     E_INST(vkCreateXcbSurfaceKHR),
     E_INST(vkGetPhysicalDeviceXcbPresentationSupportKHR),
 
+    E_DEV (vkGetDeviceGroupPresentCapabilitiesKHR),
+    E_DEV (vkGetDeviceGroupSurfacePresentModesKHR),
     E_DEV (vkCreateSwapchainKHR),    E_DEV (vkDestroySwapchainKHR),
     E_DEV (vkGetSwapchainImagesKHR), E_DEV (vkAcquireNextImageKHR),
+    E_DEV (vkAcquireNextImage2KHR),
 
     /* CheeseBridge-specific instance extension for getting a surface
      * backed by an NSWindow + CAMetalLayer on the macOS host. */

@@ -562,3 +562,266 @@ cb_vkCmdUpdateBuffer(VkCommandBuffer cb, VkBuffer dst, VkDeviceSize offset,
     cb_w_blob(_w, data, (size_t)size);
     CMD_END();
 }
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdResolveImage(VkCommandBuffer cb, VkImage srcImage, VkImageLayout srcLayout,
+                     VkImage dstImage, VkImageLayout dstLayout,
+                     uint32_t regionCount, const VkImageResolve *pRegions) {
+    CMD_BEGIN(cb, CB_CMD_RESOLVE_IMAGE);
+    cb_image_t *src = CB_FROM_HANDLE(cb_image_t, srcImage);
+    cb_image_t *dst = CB_FROM_HANDLE(cb_image_t, dstImage);
+    cb_w_u64(_w, src ? src->remote_id : 0);
+    cb_w_u32(_w, srcLayout);
+    cb_w_u64(_w, dst ? dst->remote_id : 0);
+    cb_w_u32(_w, dstLayout);
+    cb_w_u32(_w, regionCount);
+    cb_w_bytes(_w, pRegions, regionCount * sizeof(VkImageResolve));
+    CMD_END();
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdClearDepthStencilImage(VkCommandBuffer cb, VkImage image,
+                               VkImageLayout imageLayout,
+                               const VkClearDepthStencilValue *pDepthStencil,
+                               uint32_t rangeCount,
+                               const VkImageSubresourceRange *pRanges) {
+    CMD_BEGIN(cb, CB_CMD_CLEAR_DEPTH_STENCIL_IMAGE);
+    cb_image_t *im = CB_FROM_HANDLE(cb_image_t, image);
+    cb_w_u64(_w, im ? im->remote_id : 0);
+    cb_w_u32(_w, imageLayout);
+    cb_w_bytes(_w, pDepthStencil, sizeof(VkClearDepthStencilValue));
+    cb_w_u32(_w, rangeCount);
+    cb_w_bytes(_w, pRanges, rangeCount * sizeof(VkImageSubresourceRange));
+    CMD_END();
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdExecuteCommands(VkCommandBuffer cb, uint32_t commandBufferCount,
+                        const VkCommandBuffer *pCommandBuffers) {
+    CMD_BEGIN(cb, CB_CMD_EXECUTE_COMMANDS);
+    cb_w_u32(_w, commandBufferCount);
+    for (uint32_t i = 0; i < commandBufferCount; ++i) {
+        cb_command_buffer_t *secondary = (cb_command_buffer_t *)pCommandBuffers[i];
+        cb_w_u64(_w, secondary ? secondary->remote_id : 0);
+    }
+    CMD_END();
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdBeginQuery(VkCommandBuffer cb, VkQueryPool queryPool,
+                   uint32_t query, VkQueryControlFlags flags) {
+    CMD_BEGIN(cb, CB_CMD_BEGIN_QUERY);
+    cb_query_pool_t *qp = CB_FROM_HANDLE(cb_query_pool_t, queryPool);
+    cb_w_u64(_w, qp ? qp->remote_id : 0);
+    cb_w_u32(_w, query);
+    cb_w_u32(_w, flags);
+    CMD_END();
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdEndQuery(VkCommandBuffer cb, VkQueryPool queryPool, uint32_t query) {
+    CMD_BEGIN(cb, CB_CMD_END_QUERY);
+    cb_query_pool_t *qp = CB_FROM_HANDLE(cb_query_pool_t, queryPool);
+    cb_w_u64(_w, qp ? qp->remote_id : 0);
+    cb_w_u32(_w, query);
+    CMD_END();
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdResetQueryPool(VkCommandBuffer cb, VkQueryPool queryPool,
+                       uint32_t firstQuery, uint32_t queryCount) {
+    CMD_BEGIN(cb, CB_CMD_RESET_QUERY_POOL);
+    cb_query_pool_t *qp = CB_FROM_HANDLE(cb_query_pool_t, queryPool);
+    cb_w_u64(_w, qp ? qp->remote_id : 0);
+    cb_w_u32(_w, firstQuery);
+    cb_w_u32(_w, queryCount);
+    CMD_END();
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdWriteTimestamp(VkCommandBuffer cb, VkPipelineStageFlagBits pipelineStage,
+                       VkQueryPool queryPool, uint32_t query) {
+    CMD_BEGIN(cb, CB_CMD_WRITE_TIMESTAMP);
+    cb_query_pool_t *qp = CB_FROM_HANDLE(cb_query_pool_t, queryPool);
+    cb_w_u32(_w, pipelineStage);
+    cb_w_u64(_w, qp ? qp->remote_id : 0);
+    cb_w_u32(_w, query);
+    CMD_END();
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdCopyQueryPoolResults(VkCommandBuffer cb, VkQueryPool queryPool,
+                             uint32_t firstQuery, uint32_t queryCount,
+                             VkBuffer dstBuffer, VkDeviceSize dstOffset,
+                             VkDeviceSize stride, VkQueryResultFlags flags) {
+    CMD_BEGIN(cb, CB_CMD_COPY_QUERY_POOL_RESULTS);
+    cb_query_pool_t *qp = CB_FROM_HANDLE(cb_query_pool_t, queryPool);
+    cb_buffer_t *dst = CB_FROM_HANDLE(cb_buffer_t, dstBuffer);
+    cb_w_u64(_w, qp ? qp->remote_id : 0);
+    cb_w_u32(_w, firstQuery);
+    cb_w_u32(_w, queryCount);
+    cb_w_u64(_w, dst ? dst->remote_id : 0);
+    cb_w_u64(_w, dstOffset);
+    cb_w_u64(_w, stride);
+    cb_w_u32(_w, flags);
+    CMD_END();
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdSetDepthBounds(VkCommandBuffer cb, float minDepthBounds,
+                       float maxDepthBounds) {
+    (void)cb;
+    (void)minDepthBounds;
+    (void)maxDepthBounds;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdSetEvent(VkCommandBuffer cb, VkEvent event,
+                 VkPipelineStageFlags stageMask) {
+    (void)cb;
+    (void)event;
+    (void)stageMask;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdResetEvent(VkCommandBuffer cb, VkEvent event,
+                   VkPipelineStageFlags stageMask) {
+    (void)cb;
+    (void)event;
+    (void)stageMask;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdWaitEvents(VkCommandBuffer cb, uint32_t eventCount,
+                   const VkEvent *pEvents, VkPipelineStageFlags srcStageMask,
+                   VkPipelineStageFlags dstStageMask,
+                   uint32_t memoryBarrierCount,
+                   const VkMemoryBarrier *pMemoryBarriers,
+                   uint32_t bufferMemoryBarrierCount,
+                   const VkBufferMemoryBarrier *pBufferMemoryBarriers,
+                   uint32_t imageMemoryBarrierCount,
+                   const VkImageMemoryBarrier *pImageMemoryBarriers) {
+    (void)cb; (void)eventCount; (void)pEvents; (void)srcStageMask;
+    (void)dstStageMask; (void)memoryBarrierCount; (void)pMemoryBarriers;
+    (void)bufferMemoryBarrierCount; (void)pBufferMemoryBarriers;
+    (void)imageMemoryBarrierCount; (void)pImageMemoryBarriers;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdBeginRenderPass2(VkCommandBuffer cb,
+                         const VkRenderPassBeginInfo *pRenderPassBegin,
+                         const VkSubpassBeginInfo *pSubpassBeginInfo) {
+    VkSubpassContents contents = pSubpassBeginInfo
+        ? pSubpassBeginInfo->contents : VK_SUBPASS_CONTENTS_INLINE;
+    cb_vkCmdBeginRenderPass(cb, pRenderPassBegin, contents);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdBeginRenderPass2KHR(VkCommandBuffer cb,
+                            const VkRenderPassBeginInfo *pRenderPassBegin,
+                            const VkSubpassBeginInfo *pSubpassBeginInfo) {
+    cb_vkCmdBeginRenderPass2(cb, pRenderPassBegin, pSubpassBeginInfo);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdNextSubpass2(VkCommandBuffer cb,
+                     const VkSubpassBeginInfo *pSubpassBeginInfo,
+                     const VkSubpassEndInfo *pSubpassEndInfo) {
+    (void)pSubpassEndInfo;
+    VkSubpassContents contents = pSubpassBeginInfo
+        ? pSubpassBeginInfo->contents : VK_SUBPASS_CONTENTS_INLINE;
+    cb_vkCmdNextSubpass(cb, contents);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdNextSubpass2KHR(VkCommandBuffer cb,
+                        const VkSubpassBeginInfo *pSubpassBeginInfo,
+                        const VkSubpassEndInfo *pSubpassEndInfo) {
+    cb_vkCmdNextSubpass2(cb, pSubpassBeginInfo, pSubpassEndInfo);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdEndRenderPass2(VkCommandBuffer cb,
+                       const VkSubpassEndInfo *pSubpassEndInfo) {
+    (void)pSubpassEndInfo;
+    cb_vkCmdEndRenderPass(cb);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdEndRenderPass2KHR(VkCommandBuffer cb,
+                          const VkSubpassEndInfo *pSubpassEndInfo) {
+    cb_vkCmdEndRenderPass2(cb, pSubpassEndInfo);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdSetViewportWithCount(VkCommandBuffer cb, uint32_t viewportCount,
+                             const VkViewport *pViewports) {
+    cb_vkCmdSetViewport(cb, 0, viewportCount, pViewports);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdSetScissorWithCount(VkCommandBuffer cb, uint32_t scissorCount,
+                            const VkRect2D *pScissors) {
+    cb_vkCmdSetScissor(cb, 0, scissorCount, pScissors);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdBindVertexBuffers2(VkCommandBuffer cb, uint32_t firstBinding,
+                           uint32_t bindingCount, const VkBuffer *pBuffers,
+                           const VkDeviceSize *pOffsets,
+                           const VkDeviceSize *pSizes,
+                           const VkDeviceSize *pStrides) {
+    (void)pSizes;
+    (void)pStrides;
+    cb_vkCmdBindVertexBuffers(cb, firstBinding, bindingCount, pBuffers, pOffsets);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdSetCullMode(VkCommandBuffer cb, VkCullModeFlags cullMode) {
+    (void)cb; (void)cullMode;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdSetFrontFace(VkCommandBuffer cb, VkFrontFace frontFace) {
+    (void)cb; (void)frontFace;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdSetPrimitiveTopology(VkCommandBuffer cb,
+                             VkPrimitiveTopology primitiveTopology) {
+    (void)cb; (void)primitiveTopology;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdSetDepthTestEnable(VkCommandBuffer cb, VkBool32 depthTestEnable) {
+    (void)cb; (void)depthTestEnable;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdSetDepthWriteEnable(VkCommandBuffer cb, VkBool32 depthWriteEnable) {
+    (void)cb; (void)depthWriteEnable;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdSetDepthCompareOp(VkCommandBuffer cb, VkCompareOp depthCompareOp) {
+    (void)cb; (void)depthCompareOp;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdSetDepthBoundsTestEnable(VkCommandBuffer cb,
+                                 VkBool32 depthBoundsTestEnable) {
+    (void)cb; (void)depthBoundsTestEnable;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdSetStencilTestEnable(VkCommandBuffer cb, VkBool32 stencilTestEnable) {
+    (void)cb; (void)stencilTestEnable;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkCmdSetStencilOp(VkCommandBuffer cb, VkStencilFaceFlags faceMask,
+                     VkStencilOp failOp, VkStencilOp passOp,
+                     VkStencilOp depthFailOp, VkCompareOp compareOp) {
+    (void)cb; (void)faceMask; (void)failOp; (void)passOp;
+    (void)depthFailOp; (void)compareOp;
+}

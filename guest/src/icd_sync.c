@@ -153,3 +153,72 @@ cb_vkDestroyEvent(VkDevice device, VkEvent event,
     cb_writer_dispose(&w);
     free(e);
 }
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkGetEventStatus(VkDevice device, VkEvent event) {
+    (void)device;
+    (void)event;
+    return VK_EVENT_SET;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkSetEvent(VkDevice device, VkEvent event) {
+    (void)device;
+    (void)event;
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkResetEvent(VkDevice device, VkEvent event) {
+    (void)device;
+    (void)event;
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkCreateQueryPool(VkDevice device, const VkQueryPoolCreateInfo *info,
+                     const VkAllocationCallbacks *pAllocator,
+                     VkQueryPool *pQueryPool) {
+    (void)info;
+    (void)pAllocator;
+    if (!device || !pQueryPool) return VK_ERROR_INITIALIZATION_FAILED;
+    cb_query_pool_t *q = (cb_query_pool_t *)calloc(1, sizeof *q);
+    if (!q) return VK_ERROR_OUT_OF_HOST_MEMORY;
+    q->device = (cb_device_t *)device;
+    q->remote_id = cb_next_id();
+    *pQueryPool = (VkQueryPool)CB_TO_HANDLE(q);
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkDestroyQueryPool(VkDevice device, VkQueryPool queryPool,
+                      const VkAllocationCallbacks *pAllocator) {
+    (void)device;
+    (void)pAllocator;
+    if (!queryPool) return;
+    free(CB_FROM_HANDLE(cb_query_pool_t, queryPool));
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkGetQueryPoolResults(VkDevice device, VkQueryPool queryPool,
+                         uint32_t firstQuery, uint32_t queryCount,
+                         size_t dataSize, void *pData, VkDeviceSize stride,
+                         VkQueryResultFlags flags) {
+    (void)device;
+    (void)queryPool;
+    (void)firstQuery;
+    (void)queryCount;
+    (void)stride;
+    (void)flags;
+    if (pData && dataSize) memset(pData, 0, dataSize);
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkResetQueryPool(VkDevice device, VkQueryPool queryPool,
+                    uint32_t firstQuery, uint32_t queryCount) {
+    (void)device;
+    (void)queryPool;
+    (void)firstQuery;
+    (void)queryCount;
+}

@@ -246,6 +246,66 @@ cb_vkBindBufferMemory(VkDevice device, VkBuffer buffer,
     return vr;
 }
 
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetBufferMemoryRequirements2(VkDevice device,
+                                  const VkBufferMemoryRequirementsInfo2 *pInfo,
+                                  VkMemoryRequirements2 *pMemoryRequirements) {
+    if (!pInfo || !pMemoryRequirements) return;
+    cb_vkGetBufferMemoryRequirements(device, pInfo->buffer,
+                                     &pMemoryRequirements->memoryRequirements);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetBufferMemoryRequirements2KHR(VkDevice device,
+                                     const VkBufferMemoryRequirementsInfo2 *pInfo,
+                                     VkMemoryRequirements2 *pMemoryRequirements) {
+    cb_vkGetBufferMemoryRequirements2(device, pInfo, pMemoryRequirements);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkBindBufferMemory2(VkDevice device, uint32_t bindInfoCount,
+                       const VkBindBufferMemoryInfo *pBindInfos) {
+    for (uint32_t i = 0; i < bindInfoCount; ++i) {
+        VkResult vr = cb_vkBindBufferMemory(device, pBindInfos[i].buffer,
+                                            pBindInfos[i].memory,
+                                            pBindInfos[i].memoryOffset);
+        if (vr != VK_SUCCESS) return vr;
+    }
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkBindBufferMemory2KHR(VkDevice device, uint32_t bindInfoCount,
+                          const VkBindBufferMemoryInfo *pBindInfos) {
+    return cb_vkBindBufferMemory2(device, bindInfoCount, pBindInfos);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkCreateBufferView(VkDevice device, const VkBufferViewCreateInfo *info,
+                      const VkAllocationCallbacks *pAllocator,
+                      VkBufferView *pView) {
+    (void)pAllocator;
+    if (!device || !info || !pView) return VK_ERROR_INITIALIZATION_FAILED;
+    cb_device_t *dev = (cb_device_t *)device;
+    cb_buffer_view_t *bv = (cb_buffer_view_t *)calloc(1, sizeof *bv);
+    if (!bv) return VK_ERROR_OUT_OF_HOST_MEMORY;
+    bv->device = dev;
+    bv->remote_id = cb_next_id();
+    *pView = (VkBufferView)CB_TO_HANDLE(bv);
+    CB_D("vkCreateBufferView placeholder id=%llu",
+         (unsigned long long)bv->remote_id);
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkDestroyBufferView(VkDevice device, VkBufferView view,
+                       const VkAllocationCallbacks *pAllocator) {
+    (void)device;
+    (void)pAllocator;
+    if (!view) return;
+    free(CB_FROM_HANDLE(cb_buffer_view_t, view));
+}
+
 /* ---- Images -------------------------------------------------------------- */
 
 static void cb_serialize_image_create(cb_writer_t *w,
@@ -337,6 +397,73 @@ cb_vkBindImageMemory(VkDevice device, VkImage image,
                                    w.buf, (uint32_t)w.pos);
     cb_writer_dispose(&w);
     return vr;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetImageMemoryRequirements2(VkDevice device,
+                                 const VkImageMemoryRequirementsInfo2 *pInfo,
+                                 VkMemoryRequirements2 *pMemoryRequirements) {
+    if (!pInfo || !pMemoryRequirements) return;
+    cb_vkGetImageMemoryRequirements(device, pInfo->image,
+                                    &pMemoryRequirements->memoryRequirements);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetImageMemoryRequirements2KHR(VkDevice device,
+                                    const VkImageMemoryRequirementsInfo2 *pInfo,
+                                    VkMemoryRequirements2 *pMemoryRequirements) {
+    cb_vkGetImageMemoryRequirements2(device, pInfo, pMemoryRequirements);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetImageSparseMemoryRequirements(VkDevice device, VkImage image,
+                                      uint32_t *pSparseMemoryRequirementCount,
+                                      VkSparseImageMemoryRequirements *pSparseMemoryRequirements) {
+    (void)device;
+    (void)image;
+    if (pSparseMemoryRequirementCount) *pSparseMemoryRequirementCount = 0;
+    (void)pSparseMemoryRequirements;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetImageSparseMemoryRequirements2(
+    VkDevice device,
+    const VkImageSparseMemoryRequirementsInfo2 *pInfo,
+    uint32_t *pSparseMemoryRequirementCount,
+    VkSparseImageMemoryRequirements2 *pSparseMemoryRequirements) {
+    (void)pInfo;
+    if (pSparseMemoryRequirementCount) *pSparseMemoryRequirementCount = 0;
+    (void)device;
+    (void)pSparseMemoryRequirements;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetImageSparseMemoryRequirements2KHR(
+    VkDevice device,
+    const VkImageSparseMemoryRequirementsInfo2 *pInfo,
+    uint32_t *pSparseMemoryRequirementCount,
+    VkSparseImageMemoryRequirements2 *pSparseMemoryRequirements) {
+    cb_vkGetImageSparseMemoryRequirements2(device, pInfo,
+                                           pSparseMemoryRequirementCount,
+                                           pSparseMemoryRequirements);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkBindImageMemory2(VkDevice device, uint32_t bindInfoCount,
+                      const VkBindImageMemoryInfo *pBindInfos) {
+    for (uint32_t i = 0; i < bindInfoCount; ++i) {
+        VkResult vr = cb_vkBindImageMemory(device, pBindInfos[i].image,
+                                           pBindInfos[i].memory,
+                                           pBindInfos[i].memoryOffset);
+        if (vr != VK_SUCCESS) return vr;
+    }
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkBindImageMemory2KHR(VkDevice device, uint32_t bindInfoCount,
+                         const VkBindImageMemoryInfo *pBindInfos) {
+    return cb_vkBindImageMemory2(device, bindInfoCount, pBindInfos);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
