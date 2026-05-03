@@ -29,6 +29,10 @@ static const VkExtensionProperties g_inst_exts[] = {
     { VK_KHR_SURFACE_EXTENSION_NAME,                 25 },
     { "VK_KHR_xlib_surface",                          6 },
     { "VK_KHR_xcb_surface",                           6 },
+    { VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, 2 },
+    { VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME,     1 },
+    { VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME,  1 },
+    { VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME,      1 },
     { "VK_CHEESEBRIDGE_host_surface",                 1 },
 };
 
@@ -301,6 +305,252 @@ cb_vkGetPhysicalDeviceSparseImageFormatProperties(
     (void)pProperties;
 }
 
+/* ---- VK_KHR_get_physical_device_properties2 ----------------------------- */
+
+static void cb_fill_properties2_pnext(VkPhysicalDevice physicalDevice, void *pNext) {
+    (void)physicalDevice;
+    for (VkBaseOutStructure *out = (VkBaseOutStructure *)pNext; out; out = out->pNext) {
+        switch (out->sType) {
+            case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES: {
+                VkPhysicalDeviceIDProperties *id = (VkPhysicalDeviceIDProperties *)out;
+                memset(id->deviceUUID, 0x43, sizeof id->deviceUUID);
+                memset(id->driverUUID, 0x42, sizeof id->driverUUID);
+                memset(id->deviceLUID, 0, sizeof id->deviceLUID);
+                id->deviceNodeMask = 0;
+                id->deviceLUIDValid = VK_FALSE;
+                break;
+            }
+            default:
+                break;
+        }
+    }
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
+                                VkPhysicalDeviceFeatures2 *pFeatures) {
+    if (!pFeatures) return;
+    cb_vkGetPhysicalDeviceFeatures(physicalDevice, &pFeatures->features);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceFeatures2KHR(VkPhysicalDevice physicalDevice,
+                                   VkPhysicalDeviceFeatures2 *pFeatures) {
+    cb_vkGetPhysicalDeviceFeatures2(physicalDevice, pFeatures);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
+                                  VkPhysicalDeviceProperties2 *pProperties) {
+    if (!pProperties) return;
+    cb_vkGetPhysicalDeviceProperties(physicalDevice, &pProperties->properties);
+    cb_fill_properties2_pnext(physicalDevice, pProperties->pNext);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceProperties2KHR(VkPhysicalDevice physicalDevice,
+                                     VkPhysicalDeviceProperties2 *pProperties) {
+    cb_vkGetPhysicalDeviceProperties2(physicalDevice, pProperties);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceFormatProperties2(VkPhysicalDevice physicalDevice,
+                                        VkFormat format,
+                                        VkFormatProperties2 *pProperties) {
+    if (!pProperties) return;
+    cb_vkGetPhysicalDeviceFormatProperties(physicalDevice, format,
+                                           &pProperties->formatProperties);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceFormatProperties2KHR(VkPhysicalDevice physicalDevice,
+                                           VkFormat format,
+                                           VkFormatProperties2 *pProperties) {
+    cb_vkGetPhysicalDeviceFormatProperties2(physicalDevice, format, pProperties);
+}
+
+static const VkPhysicalDeviceExternalImageFormatInfo *
+cb_find_external_image_format_info(const void *pNext) {
+    for (const VkBaseInStructure *in = (const VkBaseInStructure *)pNext; in; in = in->pNext) {
+        if (in->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO)
+            return (const VkPhysicalDeviceExternalImageFormatInfo *)in;
+    }
+    return NULL;
+}
+
+static void cb_fill_external_image_format_properties(const void *pNext,
+                                                    VkExternalMemoryHandleTypeFlagBits handleType) {
+    for (VkBaseOutStructure *out = (VkBaseOutStructure *)pNext; out; out = out->pNext) {
+        if (out->sType != VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES) continue;
+        VkExternalImageFormatProperties *props = (VkExternalImageFormatProperties *)out;
+        memset(&props->externalMemoryProperties, 0,
+               sizeof props->externalMemoryProperties);
+        props->externalMemoryProperties.compatibleHandleTypes = handleType;
+    }
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkGetPhysicalDeviceImageFormatProperties2(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo,
+    VkImageFormatProperties2 *pImageFormatProperties) {
+    if (!pImageFormatInfo || !pImageFormatProperties)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    VkResult vr = cb_vkGetPhysicalDeviceImageFormatProperties(
+        physicalDevice, pImageFormatInfo->format, pImageFormatInfo->type,
+        pImageFormatInfo->tiling, pImageFormatInfo->usage,
+        pImageFormatInfo->flags, &pImageFormatProperties->imageFormatProperties);
+    const VkPhysicalDeviceExternalImageFormatInfo *external =
+        cb_find_external_image_format_info(pImageFormatInfo->pNext);
+    if (external)
+        cb_fill_external_image_format_properties(pImageFormatProperties->pNext,
+                                                 external->handleType);
+    return vr;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+cb_vkGetPhysicalDeviceImageFormatProperties2KHR(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo,
+    VkImageFormatProperties2 *pImageFormatProperties) {
+    return cb_vkGetPhysicalDeviceImageFormatProperties2(
+        physicalDevice, pImageFormatInfo, pImageFormatProperties);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceQueueFamilyProperties2(VkPhysicalDevice physicalDevice,
+                                             uint32_t *pCount,
+                                             VkQueueFamilyProperties2 *pProps) {
+    if (!pProps) {
+        cb_vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, pCount, NULL);
+        return;
+    }
+    uint32_t count = pCount ? *pCount : 0;
+    if (!count) return;
+    VkQueueFamilyProperties *tmp =
+        (VkQueueFamilyProperties *)calloc(count, sizeof *tmp);
+    if (!tmp) {
+        *pCount = 0;
+        return;
+    }
+    cb_vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, tmp);
+    for (uint32_t i = 0; i < count; ++i) pProps[i].queueFamilyProperties = tmp[i];
+    *pCount = count;
+    free(tmp);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceQueueFamilyProperties2KHR(VkPhysicalDevice physicalDevice,
+                                                uint32_t *pCount,
+                                                VkQueueFamilyProperties2 *pProps) {
+    cb_vkGetPhysicalDeviceQueueFamilyProperties2(physicalDevice, pCount, pProps);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceMemoryProperties2(VkPhysicalDevice physicalDevice,
+                                        VkPhysicalDeviceMemoryProperties2 *pMemProps) {
+    if (!pMemProps) return;
+    cb_vkGetPhysicalDeviceMemoryProperties(physicalDevice, &pMemProps->memoryProperties);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceMemoryProperties2KHR(VkPhysicalDevice physicalDevice,
+                                           VkPhysicalDeviceMemoryProperties2 *pMemProps) {
+    cb_vkGetPhysicalDeviceMemoryProperties2(physicalDevice, pMemProps);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceSparseImageFormatProperties2(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceSparseImageFormatInfo2 *pFormatInfo,
+    uint32_t *pPropertyCount,
+    VkSparseImageFormatProperties2 *pProperties) {
+    (void)physicalDevice;
+    (void)pFormatInfo;
+    if (!pPropertyCount) return;
+    *pPropertyCount = 0;
+    (void)pProperties;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceSparseImageFormatProperties2KHR(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceSparseImageFormatInfo2 *pFormatInfo,
+    uint32_t *pPropertyCount,
+    VkSparseImageFormatProperties2 *pProperties) {
+    cb_vkGetPhysicalDeviceSparseImageFormatProperties2(
+        physicalDevice, pFormatInfo, pPropertyCount, pProperties);
+}
+
+/* ---- External handle capability queries --------------------------------- */
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceExternalBufferProperties(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceExternalBufferInfo *pExternalBufferInfo,
+    VkExternalBufferProperties *pExternalBufferProperties) {
+    (void)physicalDevice;
+    if (!pExternalBufferProperties) return;
+    memset(&pExternalBufferProperties->externalMemoryProperties, 0,
+           sizeof pExternalBufferProperties->externalMemoryProperties);
+    if (pExternalBufferInfo)
+        pExternalBufferProperties->externalMemoryProperties.compatibleHandleTypes =
+            pExternalBufferInfo->handleType;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceExternalBufferPropertiesKHR(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceExternalBufferInfo *pExternalBufferInfo,
+    VkExternalBufferProperties *pExternalBufferProperties) {
+    cb_vkGetPhysicalDeviceExternalBufferProperties(
+        physicalDevice, pExternalBufferInfo, pExternalBufferProperties);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceExternalFenceProperties(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceExternalFenceInfo *pExternalFenceInfo,
+    VkExternalFenceProperties *pExternalFenceProperties) {
+    (void)physicalDevice;
+    if (!pExternalFenceProperties) return;
+    pExternalFenceProperties->exportFromImportedHandleTypes = 0;
+    pExternalFenceProperties->compatibleHandleTypes =
+        pExternalFenceInfo ? pExternalFenceInfo->handleType : 0;
+    pExternalFenceProperties->externalFenceFeatures = 0;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceExternalFencePropertiesKHR(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceExternalFenceInfo *pExternalFenceInfo,
+    VkExternalFenceProperties *pExternalFenceProperties) {
+    cb_vkGetPhysicalDeviceExternalFenceProperties(
+        physicalDevice, pExternalFenceInfo, pExternalFenceProperties);
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceExternalSemaphoreProperties(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceExternalSemaphoreInfo *pExternalSemaphoreInfo,
+    VkExternalSemaphoreProperties *pExternalSemaphoreProperties) {
+    (void)physicalDevice;
+    if (!pExternalSemaphoreProperties) return;
+    pExternalSemaphoreProperties->exportFromImportedHandleTypes = 0;
+    pExternalSemaphoreProperties->compatibleHandleTypes =
+        pExternalSemaphoreInfo ? pExternalSemaphoreInfo->handleType : 0;
+    pExternalSemaphoreProperties->externalSemaphoreFeatures = 0;
+}
+
+VKAPI_ATTR void VKAPI_CALL
+cb_vkGetPhysicalDeviceExternalSemaphorePropertiesKHR(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceExternalSemaphoreInfo *pExternalSemaphoreInfo,
+    VkExternalSemaphoreProperties *pExternalSemaphoreProperties) {
+    cb_vkGetPhysicalDeviceExternalSemaphoreProperties(
+        physicalDevice, pExternalSemaphoreInfo, pExternalSemaphoreProperties);
+}
+
 /* Per-physical-device extension list. We re-use the host's. */
 VKAPI_ATTR VkResult VKAPI_CALL
 cb_vkEnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice,
@@ -312,6 +562,9 @@ cb_vkEnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice,
      * it dynamically here. Add to taste. */
     static const VkExtensionProperties exts[] = {
         { VK_KHR_SWAPCHAIN_EXTENSION_NAME, 70 },
+        { VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME, 1 },
+        { VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME, 1 },
+        { VK_KHR_EXTERNAL_FENCE_EXTENSION_NAME, 1 },
         { VK_KHR_MAINTENANCE1_EXTENSION_NAME, 2 },
         { VK_KHR_MAINTENANCE2_EXTENSION_NAME, 1 },
         { VK_KHR_MAINTENANCE3_EXTENSION_NAME, 1 },

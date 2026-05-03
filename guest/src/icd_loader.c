@@ -29,6 +29,26 @@ VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceMemoryProperties(VkPhysical
 VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceFormatProperties(VkPhysicalDevice, VkFormat, VkFormatProperties *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceImageFormatProperties(VkPhysicalDevice, VkFormat, VkImageType, VkImageTiling, VkImageUsageFlags, VkImageCreateFlags, VkImageFormatProperties *);
 VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceSparseImageFormatProperties(VkPhysicalDevice, VkFormat, VkImageType, VkSampleCountFlagBits, VkImageUsageFlags, VkImageTiling, uint32_t *, VkSparseImageFormatProperties *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceFeatures2(VkPhysicalDevice, VkPhysicalDeviceFeatures2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceFeatures2KHR(VkPhysicalDevice, VkPhysicalDeviceFeatures2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceProperties2(VkPhysicalDevice, VkPhysicalDeviceProperties2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceProperties2KHR(VkPhysicalDevice, VkPhysicalDeviceProperties2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceFormatProperties2(VkPhysicalDevice, VkFormat, VkFormatProperties2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceFormatProperties2KHR(VkPhysicalDevice, VkFormat, VkFormatProperties2 *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice, const VkPhysicalDeviceImageFormatInfo2 *, VkImageFormatProperties2 *);
+VKAPI_ATTR VkResult VKAPI_CALL cb_vkGetPhysicalDeviceImageFormatProperties2KHR(VkPhysicalDevice, const VkPhysicalDeviceImageFormatInfo2 *, VkImageFormatProperties2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceQueueFamilyProperties2(VkPhysicalDevice, uint32_t *, VkQueueFamilyProperties2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceQueueFamilyProperties2KHR(VkPhysicalDevice, uint32_t *, VkQueueFamilyProperties2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceMemoryProperties2(VkPhysicalDevice, VkPhysicalDeviceMemoryProperties2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceMemoryProperties2KHR(VkPhysicalDevice, VkPhysicalDeviceMemoryProperties2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceSparseImageFormatProperties2(VkPhysicalDevice, const VkPhysicalDeviceSparseImageFormatInfo2 *, uint32_t *, VkSparseImageFormatProperties2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceSparseImageFormatProperties2KHR(VkPhysicalDevice, const VkPhysicalDeviceSparseImageFormatInfo2 *, uint32_t *, VkSparseImageFormatProperties2 *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceExternalBufferProperties(VkPhysicalDevice, const VkPhysicalDeviceExternalBufferInfo *, VkExternalBufferProperties *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceExternalBufferPropertiesKHR(VkPhysicalDevice, const VkPhysicalDeviceExternalBufferInfo *, VkExternalBufferProperties *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceExternalFenceProperties(VkPhysicalDevice, const VkPhysicalDeviceExternalFenceInfo *, VkExternalFenceProperties *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceExternalFencePropertiesKHR(VkPhysicalDevice, const VkPhysicalDeviceExternalFenceInfo *, VkExternalFenceProperties *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceExternalSemaphoreProperties(VkPhysicalDevice, const VkPhysicalDeviceExternalSemaphoreInfo *, VkExternalSemaphoreProperties *);
+VKAPI_ATTR void     VKAPI_CALL cb_vkGetPhysicalDeviceExternalSemaphorePropertiesKHR(VkPhysicalDevice, const VkPhysicalDeviceExternalSemaphoreInfo *, VkExternalSemaphoreProperties *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkEnumerateDeviceExtensionProperties(VkPhysicalDevice, const char *, uint32_t *, VkExtensionProperties *);
 VKAPI_ATTR VkResult VKAPI_CALL cb_vkEnumerateDeviceLayerProperties(VkPhysicalDevice, uint32_t *, VkLayerProperties *);
 
@@ -186,6 +206,26 @@ static const struct cb_proc_entry g_procs[] = {
     E_INST(vkGetPhysicalDeviceFormatProperties),
     E_INST(vkGetPhysicalDeviceImageFormatProperties),
     E_INST(vkGetPhysicalDeviceSparseImageFormatProperties),
+    E_INST(vkGetPhysicalDeviceFeatures2),
+    E_INST(vkGetPhysicalDeviceFeatures2KHR),
+    E_INST(vkGetPhysicalDeviceProperties2),
+    E_INST(vkGetPhysicalDeviceProperties2KHR),
+    E_INST(vkGetPhysicalDeviceFormatProperties2),
+    E_INST(vkGetPhysicalDeviceFormatProperties2KHR),
+    E_INST(vkGetPhysicalDeviceImageFormatProperties2),
+    E_INST(vkGetPhysicalDeviceImageFormatProperties2KHR),
+    E_INST(vkGetPhysicalDeviceQueueFamilyProperties2),
+    E_INST(vkGetPhysicalDeviceQueueFamilyProperties2KHR),
+    E_INST(vkGetPhysicalDeviceMemoryProperties2),
+    E_INST(vkGetPhysicalDeviceMemoryProperties2KHR),
+    E_INST(vkGetPhysicalDeviceSparseImageFormatProperties2),
+    E_INST(vkGetPhysicalDeviceSparseImageFormatProperties2KHR),
+    E_INST(vkGetPhysicalDeviceExternalBufferProperties),
+    E_INST(vkGetPhysicalDeviceExternalBufferPropertiesKHR),
+    E_INST(vkGetPhysicalDeviceExternalFenceProperties),
+    E_INST(vkGetPhysicalDeviceExternalFencePropertiesKHR),
+    E_INST(vkGetPhysicalDeviceExternalSemaphoreProperties),
+    E_INST(vkGetPhysicalDeviceExternalSemaphorePropertiesKHR),
     E_INST(vkEnumerateDeviceExtensionProperties),
     E_INST(vkEnumerateDeviceLayerProperties),
 
