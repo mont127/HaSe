@@ -265,7 +265,7 @@ static bool process_running_pattern(const char *pattern) {
 static bool host_window_running(const hase_config_t *cfg) {
     char pattern[256];
     int n = snprintf(pattern, sizeof pattern,
-                     "hase_window_host[[:space:]]+%s([[:space:]]|$)",
+                     "hase_window_host[[:space:]]+--watch[[:space:]]+%s([[:space:]]|$)",
                      cfg->name);
     if (n < 0 || (size_t)n >= sizeof pattern) return false;
     return process_running_pattern(pattern);
@@ -462,7 +462,13 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "set -eu\n"
         "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
         "FORMAT=\"${HASE_CAPTURE_FORMAT:-xwd}\"\n"
-        "DELAY=\"${HASE_CAPTURE_DELAY:-0.033}\"\n"
+        "TARGET_FPS=\"${HASE_CAPTURE_TARGET_FPS:-144}\"\n"
+        "MIN_FPS=\"${HASE_CAPTURE_MIN_FPS:-60}\"\n"
+        "if [ -n \"${HASE_CAPTURE_DELAY:-}\" ]; then\n"
+        "  DELAY=\"$HASE_CAPTURE_DELAY\"\n"
+        "else\n"
+        "  DELAY=$(awk -v target=\"$TARGET_FPS\" -v min=\"$MIN_FPS\" 'BEGIN { fps = target + 0; floor = min + 0; if (fps <= 0) fps = 144; if (floor <= 0) floor = 60; if (fps < floor) fps = floor; printf \"%.6f\", 1.0 / fps }')\n"
+        "fi\n"
         "BASE=\"/mnt/hase/runtime/frame\"\n"
         "mkdir -p /mnt/hase/runtime\n"
         "rm -f \"$BASE.xwd\" \"$BASE.bmp\" \"$BASE.tmp.xwd\" \"$BASE.tmp.bmp\"\n"
@@ -1203,7 +1209,8 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "  pkill -f capture-daemon.sh >/dev/null 2>&1 || true\n"
         "  pkill -f input-daemon.sh >/dev/null 2>&1 || true\n"
         "  HASE_CAPTURE_FORMAT=\"${HASE_CAPTURE_FORMAT:-xwd}\" \\\n"
-        "  HASE_CAPTURE_DELAY=\"${HASE_CAPTURE_DELAY:-0.033}\" \\\n"
+        "  HASE_CAPTURE_TARGET_FPS=\"${HASE_CAPTURE_TARGET_FPS:-144}\" \\\n"
+        "  HASE_CAPTURE_MIN_FPS=\"${HASE_CAPTURE_MIN_FPS:-60}\" \\\n"
         "    nohup /mnt/hase/runtime/capture-daemon.sh >/tmp/hase/capture.log 2>&1 &\n"
         "  HASE_INPUT_DELAY=\"${HASE_INPUT_DELAY:-0.004}\" \\\n"
         "    nohup /mnt/hase/runtime/input-daemon.sh >/tmp/hase/input.log 2>&1 &\n"
@@ -1430,11 +1437,23 @@ static int cmd_steam(const hase_config_t *cfg, const char *argv0) {
                 if (host_window_running(cfg)) {
                     printf("macOS window manager is already running for bottle %s.\n", cfg->name);
                 } else {
-                    printf("Starting macOS window manager: %s %s\n", host_path, cfg->name);
+                    printf("Starting macOS window watcher: %s --watch %s\n", host_path, cfg->name);
                     pid_t pid = fork();
                     if (pid == 0) {
+                        setsid();
+                        char log_path[PATH_MAX];
+                        snprintf(log_path, sizeof log_path,
+                                 "/tmp/hase-window-host-%s.log", cfg->name);
+                        int log_fd = open(log_path, O_CREAT | O_WRONLY | O_APPEND, 0644);
+                        if (log_fd >= 0) {
+                            dup2(log_fd, STDOUT_FILENO);
+                            dup2(log_fd, STDERR_FILENO);
+                            if (log_fd > STDERR_FILENO) close(log_fd);
+                        }
                         setenv("HASE_ROOT", cfg->root, 1);
-                        execl(host_path, host_path, cfg->name, (char *)NULL);
+                        setenv("HASE_HOST_TARGET_FPS", "144", 0);
+                        setenv("HASE_HOST_MIN_FPS", "60", 0);
+                        execl(host_path, host_path, "--watch", cfg->name, (char *)NULL);
                         _exit(1);
                     }
                 }

@@ -1,11 +1,16 @@
 #import <Cocoa/Cocoa.h>
 
 #include <ctype.h>
+#include <limits.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 @interface HaSeLinuxWindow : NSObject
 @property(nonatomic, copy) NSString *windowID;
@@ -121,6 +126,11 @@ static NSArray<HaSeLinuxWindow *> *FetchLinuxWindows(NSString *bottle, NSString 
     NSString *vmName = VMNameForBottle(bottle);
     NSString *guestScript =
         @"export DISPLAY=\"${HASE_DISPLAY:-:99}\"; "
+         "if command -v wmctrl >/dev/null 2>&1; then "
+         "DISPLAY=\"$DISPLAY\" wmctrl -lG -p 2>/dev/null | "
+         "awk 'BEGIN { OFS=\"\\t\" } { id=$1; pid=$3; x=$4; y=$5; w=$6; h=$7; title=\"\"; for (i=9; i<=NF; ++i) title=title (i==9 ? \"\" : \" \") $i; if (w >= 80 && h >= 80) print id, pid, x, y, w, h, title }'; "
+         "exit 0; "
+         "fi; "
          "if command -v xwininfo >/dev/null 2>&1; then "
          "xwininfo -root -tree 2>/dev/null | "
          "sed -nE 's/^[[:space:]]+(0x[0-9a-fA-F]+).* ([0-9]+)x([0-9]+)([+-][0-9]+)([+-][0-9]+)[[:space:]].*/\\1\\t\\4\\t\\5\\t\\2\\t\\3/p' | "
@@ -220,6 +230,37 @@ static uint32_t ReadXWDU32(const uint8_t *p, BOOL swap) {
     return swap ? BSwap32(v) : v;
 }
 
+static BOOL FileStamp(NSString *path, unsigned long long *mtimeNS, unsigned long long *size) {
+    struct stat st;
+    if (stat([path fileSystemRepresentation], &st) != 0) return NO;
+    if (mtimeNS) {
+        *mtimeNS = ((unsigned long long)st.st_mtimespec.tv_sec * 1000000000ULL) +
+                   (unsigned long long)st.st_mtimespec.tv_nsec;
+    }
+    if (size) *size = (unsigned long long)st.st_size;
+    return st.st_size > 0;
+}
+
+static NSTimeInterval RefreshIntervalFromEnvironment(void) {
+    const char *intervalEnv = getenv("HASE_HOST_REFRESH_INTERVAL");
+    NSTimeInterval interval = intervalEnv && *intervalEnv ? atof(intervalEnv) : 0.0;
+    if (interval <= 0.0) {
+        const char *fpsEnv = getenv("HASE_HOST_TARGET_FPS");
+        double fps = fpsEnv && *fpsEnv ? atof(fpsEnv) : 144.0;
+        if (fps <= 0.0) fps = 144.0;
+        interval = 1.0 / fps;
+    }
+
+    const char *minFpsEnv = getenv("HASE_HOST_MIN_FPS");
+    double minFps = minFpsEnv && *minFpsEnv ? atof(minFpsEnv) : 60.0;
+    if (minFps > 0.0) {
+        NSTimeInterval maxInterval = 1.0 / minFps;
+        if (interval > maxInterval) interval = maxInterval;
+    }
+    if (interval < 0.001) interval = 0.001;
+    return interval;
+}
+
 static uint8_t XWDChannel(uint32_t pixel, uint32_t mask) {
     if (mask == 0) return 0;
     unsigned shift = 0;
@@ -230,7 +271,12 @@ static uint8_t XWDChannel(uint32_t pixel, uint32_t mask) {
     return (uint8_t)((compact * 255U + (maxValue / 2U)) / maxValue);
 }
 
-static NSImage *ImageFromXWDData(NSData *data, NSSize *imageSize) {
+static NSImage *ImageFromXWDDataCropped(NSData *data,
+                                        NSInteger cropX,
+                                        NSInteger cropY,
+                                        NSInteger cropWidth,
+                                        NSInteger cropHeight,
+                                        NSSize *imageSize) {
     const uint8_t *bytes = (const uint8_t *)[data bytes];
     NSUInteger length = [data length];
     if (length < 100) return nil;
@@ -271,26 +317,39 @@ static NSImage *ImageFromXWDData(NSData *data, NSSize *imageSize) {
     NSUInteger needed = pixelOffset + ((NSUInteger)height * (NSUInteger)bytesPerLine);
     if (needed > length || bytesPerLine < (NSUInteger)width * bytesPerPixel) return nil;
 
+    NSInteger sx = 0;
+    NSInteger sy = 0;
+    NSInteger sw = (NSInteger)width;
+    NSInteger sh = (NSInteger)height;
+    if (cropWidth > 0 && cropHeight > 0) {
+        sx = MAX((NSInteger)0, MIN(cropX, (NSInteger)width - 1));
+        sy = MAX((NSInteger)0, MIN(cropY, (NSInteger)height - 1));
+        sw = MAX((NSInteger)1, MIN(cropWidth, (NSInteger)width - sx));
+        sh = MAX((NSInteger)1, MIN(cropHeight, (NSInteger)height - sy));
+    }
+    uint32_t outWidth = (uint32_t)sw;
+    uint32_t outHeight = (uint32_t)sh;
+
     NSBitmapImageRep *rep = [[NSBitmapImageRep alloc]
         initWithBitmapDataPlanes:NULL
-                      pixelsWide:(NSInteger)width
-                      pixelsHigh:(NSInteger)height
+                      pixelsWide:(NSInteger)outWidth
+                      pixelsHigh:(NSInteger)outHeight
                    bitsPerSample:8
                  samplesPerPixel:4
                         hasAlpha:YES
                         isPlanar:NO
                   colorSpaceName:NSDeviceRGBColorSpace
-                     bytesPerRow:(NSInteger)width * 4
+                     bytesPerRow:(NSInteger)outWidth * 4
                     bitsPerPixel:32];
     if (!rep) return nil;
 
     uint8_t *dst = [rep bitmapData];
     BOOL msbFirst = (byteOrder != 0);
-    for (uint32_t y = 0; y < height; ++y) {
-        const uint8_t *srcRow = bytes + pixelOffset + ((NSUInteger)y * bytesPerLine);
-        uint8_t *dstRow = dst + ((NSUInteger)y * width * 4U);
-        for (uint32_t x = 0; x < width; ++x) {
-            const uint8_t *src = srcRow + ((NSUInteger)x * bytesPerPixel);
+    for (uint32_t y = 0; y < outHeight; ++y) {
+        const uint8_t *srcRow = bytes + pixelOffset + ((NSUInteger)(sy + (NSInteger)y) * bytesPerLine);
+        uint8_t *dstRow = dst + ((NSUInteger)y * outWidth * 4U);
+        for (uint32_t x = 0; x < outWidth; ++x) {
+            const uint8_t *src = srcRow + ((NSUInteger)(sx + (NSInteger)x) * bytesPerPixel);
             uint32_t pixel = 0;
             if (bitsPerPixel == 16) {
                 pixel = ReadPixel16(src, msbFirst);
@@ -309,10 +368,14 @@ static NSImage *ImageFromXWDData(NSData *data, NSSize *imageSize) {
         }
     }
 
-    NSImage *img = [[NSImage alloc] initWithSize:NSMakeSize(width, height)];
+    NSImage *img = [[NSImage alloc] initWithSize:NSMakeSize(outWidth, outHeight)];
     [img addRepresentation:rep];
-    if (imageSize) *imageSize = NSMakeSize(width, height);
+    if (imageSize) *imageSize = NSMakeSize(outWidth, outHeight);
     return img;
+}
+
+static NSImage *ImageFromXWDData(NSData *data, NSSize *imageSize) {
+    return ImageFromXWDDataCropped(data, 0, 0, 0, 0, imageSize);
 }
 
 static BOOL AppendInputCommand(NSString *bottle, NSString *script, NSString **errorText) {
@@ -404,6 +467,9 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 @property(nonatomic) BOOL haveSeenWindow;
 @property(nonatomic) NSInteger refreshCounter;
 @property(nonatomic) NSInteger windowRelistInterval;
+@property(nonatomic) unsigned long long lastFrameMTimeNS;
+@property(nonatomic) unsigned long long lastFrameSize;
+@property(nonatomic, copy) NSString *lastFramePath;
 - (void)handleMouseEvent:(NSEvent *)event button:(NSInteger)button pressed:(BOOL)pressed;
 - (void)handleMouseMoveEvent:(NSEvent *)event;
 - (void)handleScrollEvent:(NSEvent *)event;
@@ -493,9 +559,7 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     [self createHostWindow:NSMakeSize(720, 420)];
     [self refreshNow];
-    const char *intervalEnv = getenv("HASE_HOST_REFRESH_INTERVAL");
-    NSTimeInterval interval = intervalEnv && *intervalEnv ? atof(intervalEnv) : (1.0 / 30.0);
-    if (interval < 0.005) interval = 0.005;
+    NSTimeInterval interval = RefreshIntervalFromEnvironment();
     self.timer = [NSTimer scheduledTimerWithTimeInterval:interval
                                                  repeats:YES
                                                    block:^(NSTimer *t) {
@@ -596,8 +660,13 @@ static NSString *KeyNameForEvent(NSEvent *event) {
     CGFloat w = self.guestImageSize.width > 0 ? self.guestImageSize.width : self.selectedWindow.width;
     CGFloat h = self.guestImageSize.height > 0 ? self.guestImageSize.height : self.selectedWindow.height;
 
-    if (outX) *outX = (NSInteger)llround(unitX * (w - 1.0));
-    if (outY) *outY = (NSInteger)llround(unitY * (h - 1.0));
+    NSInteger localX = (NSInteger)llround(unitX * (w - 1.0));
+    NSInteger localY = (NSInteger)llround(unitY * (h - 1.0));
+    NSInteger originX = [self.selectedWindow.windowID isEqualToString:@"root"] ? 0 : self.selectedWindow.x;
+    NSInteger originY = [self.selectedWindow.windowID isEqualToString:@"root"] ? 0 : self.selectedWindow.y;
+
+    if (outX) *outX = originX + localX;
+    if (outY) *outY = originY + localY;
     return YES;
 }
 
@@ -776,10 +845,35 @@ static NSString *KeyNameForEvent(NSEvent *event) {
         NSString *bottlePath = BottlePathForBottle(bottle);
         NSString *xwdPath = [bottlePath stringByAppendingPathComponent:@"runtime/frame.xwd"];
         NSString *bmpPath = [bottlePath stringByAppendingPathComponent:@"runtime/frame.bmp"];
+        unsigned long long frameMTimeNS = 0;
+        unsigned long long frameSize = 0;
+        NSString *framePath = nil;
 
-        NSData *xwd = [NSData dataWithContentsOfFile:xwdPath options:NSDataReadingMappedIfSafe error:nil];
-        img = ImageFromXWDData(xwd, &decodedSize);
-        if (!img) {
+        if (FileStamp(xwdPath, &frameMTimeNS, &frameSize)) {
+            framePath = xwdPath;
+        } else if (FileStamp(bmpPath, &frameMTimeNS, &frameSize)) {
+            framePath = bmpPath;
+        }
+
+        if (framePath &&
+            [framePath isEqualToString:self.lastFramePath ?: @""] &&
+            frameMTimeNS == self.lastFrameMTimeNS &&
+            frameSize == self.lastFrameSize &&
+            !needsList) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self finishRefresh];
+            });
+            return;
+        }
+
+        if (framePath && [framePath isEqualToString:xwdPath]) {
+            NSData *xwd = [NSData dataWithContentsOfFile:xwdPath options:NSDataReadingMappedIfSafe error:nil];
+            if ([target.windowID isEqualToString:@"root"]) {
+                img = ImageFromXWDData(xwd, &decodedSize);
+            } else {
+                img = ImageFromXWDDataCropped(xwd, target.x, target.y, target.width, target.height, &decodedSize);
+            }
+        } else if (framePath && [framePath isEqualToString:bmpPath]) {
             NSData *bmp = [NSData dataWithContentsOfFile:bmpPath options:NSDataReadingMappedIfSafe error:nil];
             if (HasBMPSignature(bmp)) {
                 NSBitmapImageRep *rep = [NSBitmapImageRep imageRepWithData:bmp];
@@ -788,7 +882,7 @@ static NSString *KeyNameForEvent(NSEvent *event) {
             }
         }
 
-        if (!img) {
+        if (!img && !framePath) {
             /* Fallback to SSH capture */
             NSData *bmp = CaptureWindowBMP(bottle, &rc, &captureError);
             if (HasBMPSignature(bmp)) {
@@ -820,6 +914,11 @@ static NSString *KeyNameForEvent(NSEvent *event) {
                 }
             }
             self.imageView.image = img;
+            if (framePath) {
+                self.lastFramePath = framePath;
+                self.lastFrameMTimeNS = frameMTimeNS;
+                self.lastFrameSize = frameSize;
+            }
             self.haveSeenWindow = YES;
             [self setStatus:@"" visible:NO];
         });
@@ -839,10 +938,69 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 
 @end
 
+static BOOL PidIsAlive(pid_t pid) {
+    return pid > 0 && kill(pid, 0) == 0;
+}
+
+static NSTimeInterval WatchIntervalFromEnvironment(void) {
+    const char *env = getenv("HASE_WINDOW_WATCH_INTERVAL");
+    NSTimeInterval interval = env && *env ? atof(env) : 0.5;
+    if (interval < 0.1) interval = 0.1;
+    return interval;
+}
+
+static int RunWindowWatcher(NSString *bottle, const char *argv0) {
+    char exePath[PATH_MAX];
+    if (!realpath(argv0, exePath)) {
+        snprintf(exePath, sizeof exePath, "%s", argv0);
+    }
+
+    NSMutableDictionary<NSString *, NSNumber *> *children = [NSMutableDictionary dictionary];
+    NSTimeInterval interval = WatchIntervalFromEnvironment();
+
+    while (true) {
+        int status = 0;
+        while (waitpid(-1, &status, WNOHANG) > 0) {}
+
+        for (NSString *windowID in [[children allKeys] copy]) {
+            pid_t pid = (pid_t)[children[windowID] intValue];
+            if (!PidIsAlive(pid)) {
+                [children removeObjectForKey:windowID];
+            }
+        }
+
+        NSString *errorText = nil;
+        NSArray<HaSeLinuxWindow *> *windows = FetchLinuxWindows(bottle, &errorText);
+        for (HaSeLinuxWindow *w in windows) {
+            if ([w.windowID isEqualToString:@"root"]) continue;
+            if ([children objectForKey:w.windowID]) continue;
+
+            pid_t pid = fork();
+            if (pid == 0) {
+                setenv("HASE_HOST_TARGET_FPS", "144", 0);
+                setenv("HASE_HOST_MIN_FPS", "60", 0);
+                setenv("HASE_WINDOW_RELIST_INTERVAL", "144", 0);
+                execl(exePath, exePath, [bottle UTF8String], [w.windowID UTF8String], (char *)NULL);
+                _exit(127);
+            }
+            if (pid > 0) {
+                children[w.windowID] = @(pid);
+                fprintf(stderr, "HaSe window watcher: attached %s (%s) as pid %ld\n",
+                        [w.windowID UTF8String],
+                        [[w.title stringByReplacingOccurrencesOfString:@"\n" withString:@" "] UTF8String],
+                        (long)pid);
+            }
+        }
+
+        usleep((useconds_t)(interval * 1000000.0));
+    }
+}
+
 static void PrintUsage(FILE *out) {
     fprintf(out,
         "Usage:\n"
         "  hase_window_host <bottle> [window-id]\n"
+        "  hase_window_host --watch <bottle>\n"
         "  hase_window_host --list <bottle>\n"
         "\n"
         "Shows a Linux X11 window from the hidden HaSe Lima VM as a native macOS window.\n"
@@ -857,6 +1015,7 @@ int main(int argc, const char **argv) {
         }
 
         BOOL listOnly = NO;
+        BOOL watchMode = NO;
         NSString *bottle = nil;
         NSString *windowID = nil;
 
@@ -866,6 +1025,13 @@ int main(int argc, const char **argv) {
                 return 2;
             }
             listOnly = YES;
+            bottle = [NSString stringWithUTF8String:argv[2]];
+        } else if (!strcmp(argv[1], "--watch")) {
+            if (argc != 3) {
+                PrintUsage(stderr);
+                return 2;
+            }
+            watchMode = YES;
             bottle = [NSString stringWithUTF8String:argv[2]];
         } else {
             if (argc < 2 || argc > 3) {
@@ -904,6 +1070,10 @@ int main(int argc, const char **argv) {
                        [[w.title stringByReplacingOccurrencesOfString:@"\t" withString:@" "] UTF8String]);
             }
             return 0;
+        }
+
+        if (watchMode) {
+            return RunWindowWatcher(bottle, argv[0]);
         }
 
         NSApplication *app = [NSApplication sharedApplication];
