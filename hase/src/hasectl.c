@@ -1433,6 +1433,7 @@ static int cmd_steam(const hase_config_t *cfg, const char *argv0) {
                     printf("Starting macOS window manager: %s %s\n", host_path, cfg->name);
                     pid_t pid = fork();
                     if (pid == 0) {
+                        setenv("HASE_ROOT", cfg->root, 1);
                         execl(host_path, host_path, cfg->name, (char *)NULL);
                         _exit(1);
                     }
