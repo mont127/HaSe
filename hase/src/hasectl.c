@@ -48,6 +48,7 @@ static void usage(FILE *out) {
         "  hasectl install-icd <bottle> [--root DIR]\n"
         "  hasectl install-fex <bottle> [--root DIR]\n"
         "  hasectl install-steam <bottle> [--root DIR]\n"
+        "  hasectl audio <bottle> [--root DIR]\n"
         "  hasectl game-bridge <bottle> [--root DIR]\n"
         "  hasectl run-clear-demo <bottle> [--root DIR]\n"
         "  hasectl run-triangle-demo <bottle> [--root DIR]\n"
@@ -425,6 +426,7 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "rm -rf /tmp/hase /mnt/hase/runtime/frame.bmp /mnt/hase/runtime/frame.tmp.bmp \\\n"
         "  /mnt/hase/runtime/frame.png /mnt/hase/runtime/frame.tmp.png \\\n"
         "  /mnt/hase/runtime/frame.xwd /mnt/hase/runtime/frame.tmp.xwd \\\n"
+        "  /mnt/hase/runtime/window-frames \\\n"
         "  /mnt/hase/runtime/input.queue /mnt/hase/runtime/input.processing\n"
         "printf 'HaSe hidden X11 session stopped\\n'\n",
         0755);
@@ -470,8 +472,26 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "  DELAY=$(awk -v target=\"$TARGET_FPS\" -v min=\"$MIN_FPS\" 'BEGIN { fps = target + 0; floor = min + 0; if (fps <= 0) fps = 144; if (floor <= 0) floor = 60; if (fps < floor) fps = floor; printf \"%.6f\", 1.0 / fps }')\n"
         "fi\n"
         "BASE=\"/mnt/hase/runtime/frame\"\n"
+        "WINDOW_DIR=\"/mnt/hase/runtime/window-frames\"\n"
         "mkdir -p /mnt/hase/runtime\n"
+        "if [ \"${HASE_CAPTURE_WINDOW_FRAMES:-1}\" = 1 ]; then mkdir -p \"$WINDOW_DIR\"; fi\n"
         "rm -f \"$BASE.xwd\" \"$BASE.bmp\" \"$BASE.tmp.xwd\" \"$BASE.tmp.bmp\"\n"
+        "capture_window_frames() {\n"
+        "  [ \"${HASE_CAPTURE_WINDOW_FRAMES:-1}\" = 1 ] || return 0\n"
+        "  command -v wmctrl >/dev/null 2>&1 || return 0\n"
+        "  current=/tmp/hase/capture-windows.current\n"
+        "  : > \"$current\"\n"
+        "  DISPLAY=\"$DISPLAY\" wmctrl -lG -p 2>/dev/null | awk '{print $1}' | while IFS= read -r id; do\n"
+        "    case \"$id\" in 0x*) ;; *) continue ;; esac\n"
+        "    printf '%s\\n' \"$id\" >> \"$current\"\n"
+        "    tmp=\"$WINDOW_DIR/$id.tmp.xwd\"\n"
+        "    out=\"$WINDOW_DIR/$id.xwd\"\n"
+        "    DISPLAY=\"$DISPLAY\" xwd -silent -id \"$id\" -out \"$tmp\" >/dev/null 2>&1 || { rm -f \"$tmp\"; continue; }\n"
+        "    if [ -s \"$tmp\" ]; then mv \"$tmp\" \"$out\"; else rm -f \"$tmp\"; fi\n"
+        "  done\n"
+        "  find \"$WINDOW_DIR\" -type f -name '*.tmp.xwd' -delete 2>/dev/null || true\n"
+        "  find \"$WINDOW_DIR\" -type f -name '*.xwd' -mmin +2 -delete 2>/dev/null || true\n"
+        "}\n"
         "while true; do\n"
         "  if [ \"$FORMAT\" = bmp ]; then\n"
         "    DISPLAY=\"$DISPLAY\" xwd -silent -root | xwdtopnm 2>/dev/null | ppmtobmp > \"$BASE.tmp.bmp\" 2>/dev/null || true\n"
@@ -480,6 +500,7 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "    DISPLAY=\"$DISPLAY\" xwd -silent -root -out \"$BASE.tmp.xwd\" >/dev/null 2>&1 || true\n"
         "    if [ -s \"$BASE.tmp.xwd\" ]; then mv \"$BASE.tmp.xwd\" \"$BASE.xwd\"; else rm -f \"$BASE.tmp.xwd\"; fi\n"
         "  fi\n"
+        "  capture_window_frames\n"
         "  sleep \"$DELAY\"\n"
         "done\n",
         0755);
@@ -491,7 +512,7 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
         "QUEUE=/mnt/hase/runtime/input.queue\n"
         "WORK=/mnt/hase/runtime/input.processing\n"
-        "DELAY=\"${HASE_INPUT_DELAY:-0.004}\"\n"
+        "DELAY=\"${HASE_INPUT_DELAY:-0.001}\"\n"
         "mkdir -p /mnt/hase/runtime\n"
         "touch \"$QUEUE\"\n"
         "while true; do\n"
@@ -499,15 +520,42 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "    cp \"$QUEUE\" \"$WORK\" 2>/dev/null || true\n"
         "    : > \"$QUEUE\"\n"
         "    if [ -s \"$WORK\" ]; then\n"
-        "      while IFS= read -r cmd; do\n"
-        "        [ -n \"$cmd\" ] || continue\n"
-        "        DISPLAY=\"$DISPLAY\" sh -lc \"$cmd\" >/tmp/hase/input-daemon.log 2>&1 || true\n"
-        "      done < \"$WORK\"\n"
+        "      DISPLAY=\"$DISPLAY\" sh \"$WORK\" >/tmp/hase/input-daemon.log 2>&1 || true\n"
         "    fi\n"
         "    rm -f \"$WORK\"\n"
         "  fi\n"
         "  sleep \"$DELAY\"\n"
         "done\n",
+        0755);
+
+    path_join(path, sizeof path, runtime, "setup-audio.sh");
+    write_file(path,
+        "#!/bin/sh\n"
+        "# Configure guest audio to a macOS PulseAudio server.\n"
+        "set -eu\n"
+        "mkdir -p /tmp/hase\n"
+        "SERVER=\"${HASE_PULSE_SERVER:-tcp:host.lima.internal:4713}\"\n"
+        "CONF=/tmp/hase/pulse-client.conf\n"
+        "ENV=/tmp/hase/audio.env\n"
+        "cat >\"$CONF\" <<EOF\n"
+        "default-server = $SERVER\n"
+        "autospawn = no\n"
+        "enable-shm = no\n"
+        "EOF\n"
+        "cat >\"$ENV\" <<EOF\n"
+        "export PULSE_SERVER=\"$SERVER\"\n"
+        "export PULSE_CLIENTCONFIG=\"$CONF\"\n"
+        "export SDL_AUDIODRIVER=\"pulse\"\n"
+        "export ALSOFT_DRIVERS=\"pulse\"\n"
+        "EOF\n"
+        "export PULSE_SERVER=\"$SERVER\"\n"
+        "export PULSE_CLIENTCONFIG=\"$CONF\"\n"
+        "if command -v pactl >/dev/null 2>&1 && pactl info >/tmp/hase/pulse-info.log 2>&1; then\n"
+        "  printf 'HaSe audio connected to %s\\n' \"$SERVER\"\n"
+        "else\n"
+        "  printf 'HaSe audio configured for %s; start scripts/start-hase-audio.sh on macOS if silent.\\n' \"$SERVER\"\n"
+        "fi\n"
+        "exit 0\n",
         0755);
 
     path_join(path, sizeof path, runtime, "install-icd.sh");
@@ -691,6 +739,8 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "esac\n"
         "[ -f \"$MANIFEST\" ] && [ -f \"$ICD_SO\" ] || hase_cb_env_fail 'CheeseBridge Proton ICD is missing. Run: build/hase/hasectl install-icd <bottle>'\n"
         "mkdir -p /tmp/hase\n"
+        "/mnt/hase/runtime/setup-audio.sh >/tmp/hase/audio.log 2>&1 || true\n"
+        "[ -f /tmp/hase/audio.env ] && . /tmp/hase/audio.env\n"
         "export CHEESEBRIDGE_STUB=0\n"
         "export CHEESEBRIDGE_HOST=\"${CHEESEBRIDGE_HOST:-tcp:host.lima.internal:43210}\"\n"
         "export CHEESEBRIDGE_ICD_PATH=\"$ICD_SO\"\n"
@@ -1224,6 +1274,8 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "/mnt/hase/runtime/start-session.sh\n"
         "/mnt/hase/runtime/install-steam.sh\n"
         ". /mnt/hase/fex/env.sh\n"
+        "/mnt/hase/runtime/setup-audio.sh >/tmp/hase/audio.log 2>&1 || true\n"
+        "[ -f /tmp/hase/audio.env ] && . /tmp/hase/audio.env\n"
         "export DISPLAY=\"${HASE_DISPLAY:-:99}\"\n"
         "export CHEESEBRIDGE_HOST=\"${CHEESEBRIDGE_HOST:-tcp:host.lima.internal:43210}\"\n"
         "# Use Mesa Lavapipe (software Vulkan) for Steam UI rendering.\n"
@@ -1281,7 +1333,7 @@ static void write_runtime_scripts(const hase_config_t *cfg) {
         "  HASE_CAPTURE_TARGET_FPS=\"${HASE_CAPTURE_TARGET_FPS:-144}\" \\\n"
         "  HASE_CAPTURE_MIN_FPS=\"${HASE_CAPTURE_MIN_FPS:-60}\" \\\n"
         "    nohup /mnt/hase/runtime/capture-daemon.sh >/tmp/hase/capture.log 2>&1 &\n"
-        "  HASE_INPUT_DELAY=\"${HASE_INPUT_DELAY:-0.004}\" \\\n"
+        "  HASE_INPUT_DELAY=\"${HASE_INPUT_DELAY:-0.001}\" \\\n"
         "    nohup /mnt/hase/runtime/input-daemon.sh >/tmp/hase/input.log 2>&1 &\n"
         "  echo 'CheeseBridge Proton bridge is active for Steam-launched Windows games.'\n"
         "  echo 'Native-game fallback launch option: /mnt/hase/runtime/cheesebridge-game.sh %command%'\n"
@@ -1580,6 +1632,40 @@ static int resolve_src_tree(const char *argv0, char *out, size_t out_size) {
     return -1;
 }
 
+static int cmd_audio(const hase_config_t *cfg, const char *argv0) {
+    ensure_bottle_exists(cfg);
+    write_runtime_scripts(cfg);
+
+    char src[PATH_MAX];
+    if (resolve_src_tree(argv0, src, sizeof src) != 0) {
+        die("could not locate HaSe source tree.\n"
+            "Run scripts/start-hase-audio.sh from the repo root instead.");
+    }
+
+    char script[PATH_MAX];
+    path_join(script, sizeof script, src, "scripts/start-hase-audio.sh");
+    if (access(script, X_OK) != 0) {
+        fprintf(stderr, "HaSe audio helper is not executable: %s\n", script);
+        return 1;
+    }
+
+    char *host_argv[] = { script, NULL };
+    int rc = run_wait(host_argv);
+    if (rc != 0) return rc;
+
+    if (lima_instance_exists(cfg)) {
+        char *guest_argv[] = {
+            "limactl", "--tty=false", "shell", "--workdir=/mnt/hase", (char *)cfg->vm_name,
+            "sh", "-lc", "/mnt/hase/runtime/setup-audio.sh",
+            NULL
+        };
+        return run_wait(guest_argv);
+    }
+
+    printf("HaSe audio host is ready. Start the VM, then Steam will use PULSE_SERVER=tcp:host.lima.internal:4713.\n");
+    return 0;
+}
+
 /* Pipe `tar -cf - -C <src> <files...>` into `limactl shell ... <script>`.
  * Returns the exit status of the right-hand side (the install script). */
 static int run_install_pipeline(const hase_config_t *cfg, const char *src) {
@@ -1769,6 +1855,7 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "install-icd")) return cmd_install_icd(&cfg, argv[0]);
     if (!strcmp(argv[1], "install-fex")) return cmd_install_fex(&cfg);
     if (!strcmp(argv[1], "install-steam")) return cmd_install_steam(&cfg);
+    if (!strcmp(argv[1], "audio")) return cmd_audio(&cfg, argv[0]);
     if (!strcmp(argv[1], "game-bridge")) return cmd_game_bridge(&cfg, argv[0]);
     if (!strcmp(argv[1], "run-clear-demo")) return cmd_run_clear_demo(&cfg);
     if (!strcmp(argv[1], "run-triangle-demo")) return cmd_run_triangle_demo(&cfg);

@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
+#import <ApplicationServices/ApplicationServices.h>
 
 #include <ctype.h>
 #include <limits.h>
@@ -120,6 +121,23 @@ static NSInteger IntegerFromCString(const char *s, NSInteger fallback) {
     long value = strtol(s, &end, 10);
     if (end == s) return fallback;
     return (NSInteger)value;
+}
+
+static double DoubleFromCString(const char *s, double fallback) {
+    if (!s || !*s) return fallback;
+    char *end = NULL;
+    double value = strtod(s, &end);
+    if (end == s || !isfinite(value)) return fallback;
+    return value;
+}
+
+static BOOL BoolFromCString(const char *s, BOOL fallback) {
+    if (!s || !*s) return fallback;
+    if (!strcmp(s, "1") || !strcasecmp(s, "true") || !strcasecmp(s, "yes") ||
+        !strcasecmp(s, "on")) return YES;
+    if (!strcmp(s, "0") || !strcasecmp(s, "false") || !strcasecmp(s, "no") ||
+        !strcasecmp(s, "off")) return NO;
+    return fallback;
 }
 
 static NSArray<HaSeLinuxWindow *> *FetchLinuxWindows(NSString *bottle, NSString **errorText) {
@@ -422,7 +440,19 @@ static NSString *KeyNameForEvent(NSEvent *event) {
         case 0x0009: return @"Tab";
         case 0x000d: return @"Return";
         case 0x001b: return @"Escape";
+        case 0x0020: return @"space";
         case 0x007f: return @"BackSpace";
+        case '-': return @"minus";
+        case '=': return @"equal";
+        case '[': return @"bracketleft";
+        case ']': return @"bracketright";
+        case '\\': return @"backslash";
+        case ';': return @"semicolon";
+        case '\'': return @"apostrophe";
+        case ',': return @"comma";
+        case '.': return @"period";
+        case '/': return @"slash";
+        case '`': return @"grave";
         case NSDeleteFunctionKey: return @"Delete";
         case NSLeftArrowFunctionKey: return @"Left";
         case NSRightArrowFunctionKey: return @"Right";
@@ -444,8 +474,23 @@ static NSString *KeyNameForEvent(NSEvent *event) {
         case NSF10FunctionKey: return @"F10";
         case NSF11FunctionKey: return @"F11";
         case NSF12FunctionKey: return @"F12";
-        default: return nil;
+        default:
+            if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) {
+                unichar lower = (unichar)tolower((int)ch);
+                return [NSString stringWithFormat:@"%c", (char)lower];
+            }
+            if (ch >= '0' && ch <= '9') {
+                return [NSString stringWithFormat:@"%c", (char)ch];
+            }
+            return nil;
     }
+}
+
+static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
+    if (mask == NSEventModifierFlagShift) return @"Shift_L";
+    if (mask == NSEventModifierFlagControl) return @"Control_L";
+    if (mask == NSEventModifierFlagOption) return @"Alt_L";
+    return nil;
 }
 
 @class HaSeInputImageView;
@@ -465,15 +510,22 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 @property(nonatomic) BOOL refreshQueued;
 @property(nonatomic) BOOL sizedFromGuest;
 @property(nonatomic) BOOL haveSeenWindow;
+@property(nonatomic) BOOL mouseCaptured;
+@property(nonatomic) BOOL cursorHidden;
 @property(nonatomic) NSInteger refreshCounter;
 @property(nonatomic) NSInteger windowRelistInterval;
+@property(nonatomic) double mouseSensitivity;
+@property(nonatomic) NSEventModifierFlags lastModifierFlags;
 @property(nonatomic) unsigned long long lastFrameMTimeNS;
 @property(nonatomic) unsigned long long lastFrameSize;
 @property(nonatomic, copy) NSString *lastFramePath;
 - (void)handleMouseEvent:(NSEvent *)event button:(NSInteger)button pressed:(BOOL)pressed;
 - (void)handleMouseMoveEvent:(NSEvent *)event;
 - (void)handleScrollEvent:(NSEvent *)event;
-- (void)handleKeyEvent:(NSEvent *)event;
+- (void)handleKeyEvent:(NSEvent *)event pressed:(BOOL)pressed;
+- (void)handleFlagsChanged:(NSEvent *)event;
+- (void)setMouseCaptured:(BOOL)captured;
+- (void)releaseHeldGameKeys;
 @end
 
 @interface HaSeInputImageView : NSImageView
@@ -538,7 +590,15 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 }
 
 - (void)keyDown:(NSEvent *)event {
-    [self.controller handleKeyEvent:event];
+    [self.controller handleKeyEvent:event pressed:YES];
+}
+
+- (void)keyUp:(NSEvent *)event {
+    [self.controller handleKeyEvent:event pressed:NO];
+}
+
+- (void)flagsChanged:(NSEvent *)event {
+    [self.controller handleFlagsChanged:event];
 }
 
 @end
@@ -553,6 +613,8 @@ static NSString *KeyNameForEvent(NSEvent *event) {
     _inputQueue = dispatch_queue_create("dev.hase.window-host.input", DISPATCH_QUEUE_SERIAL);
     _windowRelistInterval = IntegerFromCString(getenv("HASE_WINDOW_RELIST_INTERVAL"), 120);
     if (_windowRelistInterval < 10) _windowRelistInterval = 10;
+    _mouseSensitivity = DoubleFromCString(getenv("HASE_MOUSE_SENSITIVITY"), 1.0);
+    if (_mouseSensitivity <= 0.01) _mouseSensitivity = 1.0;
     return self;
 }
 
@@ -573,8 +635,22 @@ static NSString *KeyNameForEvent(NSEvent *event) {
     return YES;
 }
 
+- (void)applicationWillTerminate:(NSNotification *)notification {
+    (void)notification;
+    [self setMouseCaptured:NO];
+    [self releaseHeldGameKeys];
+}
+
+- (void)windowDidResignKey:(NSNotification *)notification {
+    (void)notification;
+    [self setMouseCaptured:NO];
+    [self releaseHeldGameKeys];
+}
+
 - (void)windowWillClose:(NSNotification *)notification {
     (void)notification;
+    [self setMouseCaptured:NO];
+    [self releaseHeldGameKeys];
     [self.timer invalidate];
     [NSApp terminate:nil];
 }
@@ -697,26 +773,117 @@ static NSString *KeyNameForEvent(NSEvent *event) {
                                       ShellQuote(windowID)];
 }
 
+- (BOOL)linuxCenterX:(NSInteger *)outX y:(NSInteger *)outY {
+    if (!self.selectedWindow || [self.selectedWindow.windowID length] == 0) return NO;
+    NSInteger originX = [self.selectedWindow.windowID isEqualToString:@"root"] ? 0 : self.selectedWindow.x;
+    NSInteger originY = [self.selectedWindow.windowID isEqualToString:@"root"] ? 0 : self.selectedWindow.y;
+    NSInteger w = self.selectedWindow.width > 0 ? self.selectedWindow.width : 960;
+    NSInteger h = self.selectedWindow.height > 0 ? self.selectedWindow.height : 540;
+    if (outX) *outX = originX + MAX((NSInteger)0, w / 2);
+    if (outY) *outY = originY + MAX((NSInteger)0, h / 2);
+    return YES;
+}
+
+- (BOOL)shouldCaptureMouseForSelectedWindow {
+    if (!BoolFromCString(getenv("HASE_MOUSE_AUTO_CAPTURE"), NO)) return NO;
+    if (!self.selectedWindow) return NO;
+
+    NSString *title = [self.selectedWindow.title lowercaseString] ?: @"";
+    if ([title containsString:@"ultrakill"]) return YES;
+    if ([title containsString:@"steam"] ||
+        [title containsString:@"sign in"] ||
+        [title containsString:@"friends"] ||
+        [title containsString:@"settings"]) {
+        return NO;
+    }
+    return self.selectedWindow.width >= 640 && self.selectedWindow.height >= 360;
+}
+
+- (void)setMouseCaptured:(BOOL)captured {
+    if (captured == _mouseCaptured) return;
+    _mouseCaptured = captured;
+
+    if (captured) {
+        [NSApp activateIgnoringOtherApps:YES];
+        [self.window makeKeyAndOrderFront:nil];
+        [self.window makeFirstResponder:self.imageView];
+        if (!self.cursorHidden) {
+            [NSCursor hide];
+            self.cursorHidden = YES;
+        }
+        CGAssociateMouseAndMouseCursorPosition(false);
+
+        NSInteger x = 0, y = 0;
+        if ([self linuxCenterX:&x y:&y]) {
+            NSString *script = [NSString stringWithFormat:@"%@ xdotool mousemove %ld %ld",
+                                [self focusScriptForWindowID:self.selectedWindow.windowID],
+                                (long)x, (long)y];
+            [self sendInputScript:script];
+        }
+    } else {
+        CGAssociateMouseAndMouseCursorPosition(true);
+        if (self.cursorHidden) {
+            [NSCursor unhide];
+            self.cursorHidden = NO;
+        }
+    }
+}
+
+- (void)releaseHeldGameKeys {
+    if (!self.selectedWindow) return;
+    NSString *script = [NSString stringWithFormat:
+        @"%@ xdotool keyup w a s d q e r f z x c v 1 2 3 4 5 6 7 8 9 0 space Shift_L Control_L Alt_L Left Right Up Down",
+        [self focusScriptForWindowID:self.selectedWindow.windowID]];
+    [self sendInputScript:script];
+    self.lastModifierFlags = 0;
+}
+
 - (void)handleMouseMoveEvent:(NSEvent *)event {
-    if (event.timestamp - self.lastMouseMoveSent < 0.016) return;
+    NSTimeInterval minInterval = self.mouseCaptured ? 0.001 : 0.016;
+    if (event.timestamp - self.lastMouseMoveSent < minInterval) return;
     self.lastMouseMoveSent = event.timestamp;
+
+    if (self.mouseCaptured) {
+        if (!self.selectedWindow) return;
+        NSInteger dx = (NSInteger)llround(event.deltaX * self.mouseSensitivity);
+        NSInteger dy = (NSInteger)llround(-event.deltaY * self.mouseSensitivity);
+        if (dx == 0 && dy == 0) return;
+        dx = MAX((NSInteger)-400, MIN((NSInteger)400, dx));
+        dy = MAX((NSInteger)-400, MIN((NSInteger)400, dy));
+
+        NSString *script = [NSString stringWithFormat:
+            @"%@ xdotool mousemove_relative -- %ld %ld",
+            [self focusScriptForWindowID:self.selectedWindow.windowID],
+            (long)dx, (long)dy];
+        [self sendInputScript:script];
+        return;
+    }
 
     NSInteger x = 0, y = 0;
     if (![self linuxPointForEvent:event x:&x y:&y]) return;
 
     NSString *script = [NSString stringWithFormat:
-        @"xdotool mousemove %ld %ld",
+        @"%@ xdotool mousemove %ld %ld",
+        [self focusScriptForWindowID:self.selectedWindow.windowID],
         (long)x, (long)y];
     [self sendInputScript:script];
 }
 
 - (void)handleMouseEvent:(NSEvent *)event button:(NSInteger)button pressed:(BOOL)pressed {
     NSInteger x = 0, y = 0;
-    if (![self linuxPointForEvent:event x:&x y:&y]) return;
+    if (pressed && button == 1 && [self shouldCaptureMouseForSelectedWindow]) {
+        [self setMouseCaptured:YES];
+    }
+    if (self.mouseCaptured) {
+        if (![self linuxCenterX:&x y:&y]) return;
+    } else if (![self linuxPointForEvent:event x:&x y:&y]) {
+        return;
+    }
 
     NSString *verb = pressed ? @"mousedown" : @"mouseup";
     NSString *script = [NSString stringWithFormat:
-        @"xdotool mousemove %ld %ld %@ %ld",
+        @"%@ xdotool mousemove %ld %ld %@ %ld",
+        [self focusScriptForWindowID:self.selectedWindow.windowID],
         (long)x, (long)y, verb, (long)button];
     [self sendInputScript:script];
 }
@@ -746,23 +913,63 @@ static NSString *KeyNameForEvent(NSEvent *event) {
     [self sendInputScript:script];
 }
 
-- (void)handleKeyEvent:(NSEvent *)event {
+- (void)handleKeyEvent:(NSEvent *)event pressed:(BOOL)pressed {
     if (!self.selectedWindow) return;
-    if ((event.modifierFlags & NSEventModifierFlagCommand) != 0) return;
 
-    NSString *windowID = self.selectedWindow.windowID;
+    BOOL commandDown = (event.modifierFlags & NSEventModifierFlagCommand) != 0;
     NSString *keyName = KeyNameForEvent(event);
-    NSString *script = nil;
-    if (keyName) {
-        script = [NSString stringWithFormat:@"%@ xdotool key --clearmodifiers %@",
-                  [self focusScriptForWindowID:windowID], keyName];
-    } else {
-        NSString *chars = [event characters] ?: @"";
-        if ([chars length] == 0) return;
-        script = [NSString stringWithFormat:@"%@ xdotool type --clearmodifiers --delay 0 %@",
-                  [self focusScriptForWindowID:windowID], ShellQuote(chars)];
+    if (commandDown) {
+        if (pressed && [keyName isEqualToString:@"g"]) {
+            [self setMouseCaptured:!self.mouseCaptured];
+        } else if (pressed && [keyName isEqualToString:@"Escape"]) {
+            [self setMouseCaptured:NO];
+            [self releaseHeldGameKeys];
+        }
+        return;
     }
+
+    if (!keyName) return;
+    if (pressed && [event isARepeat]) return;
+    if (pressed && self.mouseCaptured && [keyName isEqualToString:@"Escape"]) {
+        [self setMouseCaptured:NO];
+    }
+
+    NSString *verb = pressed ? @"keydown" : @"keyup";
+    NSString *script = [NSString stringWithFormat:@"%@ xdotool %@ %@",
+                        [self focusScriptForWindowID:self.selectedWindow.windowID],
+                        verb, ShellQuote(keyName)];
     [self sendInputScript:script];
+}
+
+- (void)handleFlagsChanged:(NSEvent *)event {
+    if (!self.selectedWindow) return;
+
+    NSEventModifierFlags mask = NSEventModifierFlagShift |
+                                NSEventModifierFlagControl |
+                                NSEventModifierFlagOption;
+    NSEventModifierFlags current = event.modifierFlags & mask;
+    NSEventModifierFlags previous = self.lastModifierFlags & mask;
+    self.lastModifierFlags = current;
+
+    NSEventModifierFlags keys[] = {
+        NSEventModifierFlagShift,
+        NSEventModifierFlagControl,
+        NSEventModifierFlagOption
+    };
+    for (NSUInteger i = 0; i < sizeof keys / sizeof keys[0]; ++i) {
+        NSEventModifierFlags bit = keys[i];
+        BOOL wasDown = (previous & bit) != 0;
+        BOOL isDown = (current & bit) != 0;
+        if (wasDown == isDown) continue;
+
+        NSString *keyName = ModifierKeyNameForMask(bit);
+        if (!keyName) continue;
+        NSString *verb = isDown ? @"keydown" : @"keyup";
+        NSString *script = [NSString stringWithFormat:@"%@ xdotool %@ %@",
+                            [self focusScriptForWindowID:self.selectedWindow.windowID],
+                            verb, ShellQuote(keyName)];
+        [self sendInputScript:script];
+    }
 }
 
 - (void)requestRefresh {
@@ -843,13 +1050,22 @@ static NSString *KeyNameForEvent(NSEvent *event) {
 
         /* Try to read from shared filesystem first (zero-SSH) */
         NSString *bottlePath = BottlePathForBottle(bottle);
+        NSString *windowXwdPath = nil;
+        if (target && ![target.windowID isEqualToString:@"root"] && IsValidWindowID(target.windowID)) {
+            windowXwdPath = [[bottlePath stringByAppendingPathComponent:@"runtime/window-frames"]
+                stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.xwd", target.windowID]];
+        }
         NSString *xwdPath = [bottlePath stringByAppendingPathComponent:@"runtime/frame.xwd"];
         NSString *bmpPath = [bottlePath stringByAppendingPathComponent:@"runtime/frame.bmp"];
         unsigned long long frameMTimeNS = 0;
         unsigned long long frameSize = 0;
         NSString *framePath = nil;
+        BOOL frameIsWindow = NO;
 
-        if (FileStamp(xwdPath, &frameMTimeNS, &frameSize)) {
+        if (windowXwdPath && FileStamp(windowXwdPath, &frameMTimeNS, &frameSize)) {
+            framePath = windowXwdPath;
+            frameIsWindow = YES;
+        } else if (FileStamp(xwdPath, &frameMTimeNS, &frameSize)) {
             framePath = xwdPath;
         } else if (FileStamp(bmpPath, &frameMTimeNS, &frameSize)) {
             framePath = bmpPath;
@@ -873,6 +1089,9 @@ static NSString *KeyNameForEvent(NSEvent *event) {
             } else {
                 img = ImageFromXWDDataCropped(xwd, target.x, target.y, target.width, target.height, &decodedSize);
             }
+        } else if (framePath && frameIsWindow) {
+            NSData *xwd = [NSData dataWithContentsOfFile:framePath options:NSDataReadingMappedIfSafe error:nil];
+            img = ImageFromXWDData(xwd, &decodedSize);
         } else if (framePath && [framePath isEqualToString:bmpPath]) {
             NSData *bmp = [NSData dataWithContentsOfFile:bmpPath options:NSDataReadingMappedIfSafe error:nil];
             if (HasBMPSignature(bmp)) {
@@ -971,6 +1190,21 @@ static int RunWindowWatcher(NSString *bottle, const char *argv0) {
 
         NSString *errorText = nil;
         NSArray<HaSeLinuxWindow *> *windows = FetchLinuxWindows(bottle, &errorText);
+        NSMutableSet<NSString *> *currentWindowIDs = [NSMutableSet set];
+        for (HaSeLinuxWindow *w in windows) {
+            if ([w.windowID isEqualToString:@"root"]) continue;
+            [currentWindowIDs addObject:w.windowID];
+        }
+
+        for (NSString *windowID in [[children allKeys] copy]) {
+            if ([currentWindowIDs containsObject:windowID]) continue;
+            pid_t pid = (pid_t)[children[windowID] intValue];
+            if (PidIsAlive(pid)) {
+                kill(pid, SIGTERM);
+            }
+            [children removeObjectForKey:windowID];
+        }
+
         for (HaSeLinuxWindow *w in windows) {
             if ([w.windowID isEqualToString:@"root"]) continue;
             if ([children objectForKey:w.windowID]) continue;
@@ -979,7 +1213,7 @@ static int RunWindowWatcher(NSString *bottle, const char *argv0) {
             if (pid == 0) {
                 setenv("HASE_HOST_TARGET_FPS", "144", 0);
                 setenv("HASE_HOST_MIN_FPS", "60", 0);
-                setenv("HASE_WINDOW_RELIST_INTERVAL", "144", 0);
+                setenv("HASE_WINDOW_RELIST_INTERVAL", "30", 0);
                 execl(exePath, exePath, [bottle UTF8String], [w.windowID UTF8String], (char *)NULL);
                 _exit(127);
             }

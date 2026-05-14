@@ -32,5 +32,6 @@ if (APPLE)
 
     target_link_libraries(hase_window_host PRIVATE
         "-framework Cocoa"
+        "-framework ApplicationServices"
     )
 endif()
