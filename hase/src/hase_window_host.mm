@@ -264,19 +264,24 @@ static NSTimeInterval RefreshIntervalFromEnvironment(void) {
     NSTimeInterval interval = intervalEnv && *intervalEnv ? atof(intervalEnv) : 0.0;
     if (interval <= 0.0) {
         const char *fpsEnv = getenv("HASE_HOST_TARGET_FPS");
-        double fps = fpsEnv && *fpsEnv ? atof(fpsEnv) : 144.0;
-        if (fps <= 0.0) fps = 144.0;
+        double fps = fpsEnv && *fpsEnv ? atof(fpsEnv) : 30.0;
+        if (fps <= 0.0) fps = 30.0;
         interval = 1.0 / fps;
     }
 
     const char *minFpsEnv = getenv("HASE_HOST_MIN_FPS");
-    double minFps = minFpsEnv && *minFpsEnv ? atof(minFpsEnv) : 60.0;
+    double minFps = minFpsEnv && *minFpsEnv ? atof(minFpsEnv) : 20.0;
     if (minFps > 0.0) {
         NSTimeInterval maxInterval = 1.0 / minFps;
         if (interval > maxInterval) interval = maxInterval;
     }
     if (interval < 0.001) interval = 0.001;
     return interval;
+}
+
+static void ForceMouseRelease(void) {
+    CGAssociateMouseAndMouseCursorPosition(true);
+    CGDisplayShowCursor(kCGDirectMainDisplay);
 }
 
 static uint8_t XWDChannel(uint32_t pixel, uint32_t mask) {
@@ -493,6 +498,14 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
     return nil;
 }
 
+static BOOL TitleLooksSteamLike(NSString *title) {
+    NSString *lower = [title lowercaseString] ?: @"";
+    return [lower containsString:@"steam"] ||
+           [lower containsString:@"friends"] ||
+           [lower containsString:@"sign in"] ||
+           [lower containsString:@"settings"];
+}
+
 @class HaSeInputImageView;
 
 @interface HaSeWindowHostController : NSObject <NSApplicationDelegate, NSWindowDelegate>
@@ -503,6 +516,7 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
 @property(nonatomic, strong) HaSeInputImageView *imageView;
 @property(nonatomic, strong) NSTextField *statusLabel;
 @property(nonatomic, strong) NSTimer *timer;
+@property(nonatomic, strong) id eventMonitor;
 @property(nonatomic, strong) dispatch_queue_t inputQueue;
 @property(nonatomic) NSSize guestImageSize;
 @property(nonatomic) NSTimeInterval lastMouseMoveSent;
@@ -619,7 +633,10 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
+    ForceMouseRelease();
+    self.cursorHidden = NO;
     [self createHostWindow:NSMakeSize(720, 420)];
+    [self installEventMonitor];
     [self refreshNow];
     NSTimeInterval interval = RefreshIntervalFromEnvironment();
     self.timer = [NSTimer scheduledTimerWithTimeInterval:interval
@@ -637,6 +654,10 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
     (void)notification;
+    if (self.eventMonitor) {
+        [NSEvent removeMonitor:self.eventMonitor];
+        self.eventMonitor = nil;
+    }
     [self setMouseCaptured:NO];
     [self releaseHeldGameKeys];
 }
@@ -653,6 +674,96 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
     [self releaseHeldGameKeys];
     [self.timer invalidate];
     [NSApp terminate:nil];
+}
+
+- (void)installEventMonitor {
+    if (self.eventMonitor) return;
+
+    NSEventMask mask = NSEventMaskLeftMouseDown |
+                       NSEventMaskLeftMouseUp |
+                       NSEventMaskRightMouseDown |
+                       NSEventMaskRightMouseUp |
+                       NSEventMaskOtherMouseDown |
+                       NSEventMaskOtherMouseUp |
+                       NSEventMaskMouseMoved |
+                       NSEventMaskLeftMouseDragged |
+                       NSEventMaskRightMouseDragged |
+                       NSEventMaskOtherMouseDragged |
+                       NSEventMaskScrollWheel |
+                       NSEventMaskKeyDown |
+                       NSEventMaskKeyUp |
+                       NSEventMaskFlagsChanged;
+
+    __weak typeof(self) weakSelf = self;
+    self.eventMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
+        HaSeWindowHostController *strongSelf = weakSelf;
+        if (!strongSelf || event.window != strongSelf.window) return event;
+
+        if (event.type == NSEventTypeLeftMouseDown ||
+            event.type == NSEventTypeLeftMouseUp ||
+            event.type == NSEventTypeRightMouseDown ||
+            event.type == NSEventTypeRightMouseUp ||
+            event.type == NSEventTypeOtherMouseDown ||
+            event.type == NSEventTypeOtherMouseUp ||
+            event.type == NSEventTypeMouseMoved ||
+            event.type == NSEventTypeLeftMouseDragged ||
+            event.type == NSEventTypeRightMouseDragged ||
+            event.type == NSEventTypeOtherMouseDragged ||
+            event.type == NSEventTypeScrollWheel) {
+            NSPoint local = [strongSelf.imageView convertPoint:event.locationInWindow fromView:nil];
+            if (!NSPointInRect(local, strongSelf.imageView.bounds)) return event;
+        }
+
+        switch (event.type) {
+            case NSEventTypeLeftMouseDown:
+                [NSApp activateIgnoringOtherApps:YES];
+                [strongSelf.window makeKeyAndOrderFront:nil];
+                [strongSelf.window makeFirstResponder:strongSelf.imageView];
+                [strongSelf handleMouseEvent:event button:1 pressed:YES];
+                return nil;
+            case NSEventTypeLeftMouseUp:
+                [strongSelf handleMouseEvent:event button:1 pressed:NO];
+                return nil;
+            case NSEventTypeRightMouseDown:
+                [NSApp activateIgnoringOtherApps:YES];
+                [strongSelf.window makeKeyAndOrderFront:nil];
+                [strongSelf.window makeFirstResponder:strongSelf.imageView];
+                [strongSelf handleMouseEvent:event button:3 pressed:YES];
+                return nil;
+            case NSEventTypeRightMouseUp:
+                [strongSelf handleMouseEvent:event button:3 pressed:NO];
+                return nil;
+            case NSEventTypeOtherMouseDown:
+                [NSApp activateIgnoringOtherApps:YES];
+                [strongSelf.window makeKeyAndOrderFront:nil];
+                [strongSelf.window makeFirstResponder:strongSelf.imageView];
+                [strongSelf handleMouseEvent:event button:2 pressed:YES];
+                return nil;
+            case NSEventTypeOtherMouseUp:
+                [strongSelf handleMouseEvent:event button:2 pressed:NO];
+                return nil;
+            case NSEventTypeMouseMoved:
+            case NSEventTypeLeftMouseDragged:
+            case NSEventTypeRightMouseDragged:
+            case NSEventTypeOtherMouseDragged:
+                [strongSelf handleMouseMoveEvent:event];
+                return nil;
+            case NSEventTypeScrollWheel:
+                [strongSelf handleScrollEvent:event];
+                return nil;
+            case NSEventTypeKeyDown:
+                [strongSelf handleKeyEvent:event pressed:YES];
+                return nil;
+            case NSEventTypeKeyUp:
+                [strongSelf handleKeyEvent:event pressed:NO];
+                return nil;
+            case NSEventTypeFlagsChanged:
+                [strongSelf handleFlagsChanged:event];
+                return nil;
+            default:
+                return event;
+        }
+    }];
 }
 
 - (void)createHostWindow:(NSSize)size {
@@ -762,7 +873,6 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
             if (rc != 0 && [errorText length] > 0) {
                 [self setStatus:errorText visible:YES];
             }
-            [self requestRefresh];
         });
     });
 }
@@ -790,17 +900,24 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
 
     NSString *title = [self.selectedWindow.title lowercaseString] ?: @"";
     if ([title containsString:@"ultrakill"]) return YES;
-    if ([title containsString:@"steam"] ||
-        [title containsString:@"sign in"] ||
-        [title containsString:@"friends"] ||
-        [title containsString:@"settings"]) {
-        return NO;
-    }
+    if (TitleLooksSteamLike(self.selectedWindow.title)) return NO;
     return self.selectedWindow.width >= 640 && self.selectedWindow.height >= 360;
 }
 
+- (BOOL)selectedWindowLooksGame {
+    if (!self.selectedWindow) return NO;
+    if (TitleLooksSteamLike(self.selectedWindow.title)) return NO;
+    return self.selectedWindow.width >= 320 && self.selectedWindow.height >= 240;
+}
+
 - (void)setMouseCaptured:(BOOL)captured {
-    if (captured == _mouseCaptured) return;
+    if (captured == _mouseCaptured) {
+        if (!captured) {
+            ForceMouseRelease();
+            self.cursorHidden = NO;
+        }
+        return;
+    }
     _mouseCaptured = captured;
 
     if (captured) {
@@ -808,7 +925,7 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
         [self.window makeKeyAndOrderFront:nil];
         [self.window makeFirstResponder:self.imageView];
         if (!self.cursorHidden) {
-            [NSCursor hide];
+            CGDisplayHideCursor(kCGDirectMainDisplay);
             self.cursorHidden = YES;
         }
         CGAssociateMouseAndMouseCursorPosition(false);
@@ -821,9 +938,8 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
             [self sendInputScript:script];
         }
     } else {
-        CGAssociateMouseAndMouseCursorPosition(true);
+        ForceMouseRelease();
         if (self.cursorHidden) {
-            [NSCursor unhide];
             self.cursorHidden = NO;
         }
     }
@@ -839,7 +955,7 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
 }
 
 - (void)handleMouseMoveEvent:(NSEvent *)event {
-    NSTimeInterval minInterval = self.mouseCaptured ? 0.001 : 0.016;
+    NSTimeInterval minInterval = self.mouseCaptured ? 0.008 : 0.016;
     if (event.timestamp - self.lastMouseMoveSent < minInterval) return;
     self.lastMouseMoveSent = event.timestamp;
 
@@ -859,6 +975,10 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
         return;
     }
 
+    if (self.cursorHidden) {
+        [self setMouseCaptured:NO];
+    }
+
     NSInteger x = 0, y = 0;
     if (![self linuxPointForEvent:event x:&x y:&y]) return;
 
@@ -871,7 +991,8 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
 
 - (void)handleMouseEvent:(NSEvent *)event button:(NSInteger)button pressed:(BOOL)pressed {
     NSInteger x = 0, y = 0;
-    if (pressed && button == 1 && [self shouldCaptureMouseForSelectedWindow]) {
+    BOOL doubleClickCapture = pressed && button == 1 && [event clickCount] >= 2 && [self selectedWindowLooksGame];
+    if (pressed && button == 1 && ([self shouldCaptureMouseForSelectedWindow] || doubleClickCapture)) {
         [self setMouseCaptured:YES];
     }
     if (self.mouseCaptured) {
@@ -930,6 +1051,12 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
 
     if (!keyName) return;
     if (pressed && [event isARepeat]) return;
+    if (pressed && !self.mouseCaptured && BoolFromCString(getenv("HASE_CAPTURE_ON_WASD"), NO) &&
+        [self selectedWindowLooksGame] &&
+        ([keyName isEqualToString:@"w"] || [keyName isEqualToString:@"a"] ||
+         [keyName isEqualToString:@"s"] || [keyName isEqualToString:@"d"])) {
+        [self setMouseCaptured:YES];
+    }
     if (pressed && self.mouseCaptured && [keyName isEqualToString:@"Escape"]) {
         [self setMouseCaptured:NO];
     }
@@ -1050,6 +1177,8 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
 
         /* Try to read from shared filesystem first (zero-SSH) */
         NSString *bottlePath = BottlePathForBottle(bottle);
+        NSString *liveFramebufferPath = [[bottlePath stringByAppendingPathComponent:@"runtime/fb"]
+            stringByAppendingPathComponent:@"Xvfb_screen0"];
         NSString *windowXwdPath = nil;
         if (target && ![target.windowID isEqualToString:@"root"] && IsValidWindowID(target.windowID)) {
             windowXwdPath = [[bottlePath stringByAppendingPathComponent:@"runtime/window-frames"]
@@ -1061,8 +1190,12 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
         unsigned long long frameSize = 0;
         NSString *framePath = nil;
         BOOL frameIsWindow = NO;
+        BOOL frameIsLiveFramebuffer = NO;
 
-        if (windowXwdPath && FileStamp(windowXwdPath, &frameMTimeNS, &frameSize)) {
+        if (FileStamp(liveFramebufferPath, &frameMTimeNS, &frameSize)) {
+            framePath = liveFramebufferPath;
+            frameIsLiveFramebuffer = YES;
+        } else if (windowXwdPath && FileStamp(windowXwdPath, &frameMTimeNS, &frameSize)) {
             framePath = windowXwdPath;
             frameIsWindow = YES;
         } else if (FileStamp(xwdPath, &frameMTimeNS, &frameSize)) {
@@ -1075,6 +1208,7 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
             [framePath isEqualToString:self.lastFramePath ?: @""] &&
             frameMTimeNS == self.lastFrameMTimeNS &&
             frameSize == self.lastFrameSize &&
+            !frameIsLiveFramebuffer &&
             !needsList) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self finishRefresh];
@@ -1082,8 +1216,8 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
             return;
         }
 
-        if (framePath && [framePath isEqualToString:xwdPath]) {
-            NSData *xwd = [NSData dataWithContentsOfFile:xwdPath options:NSDataReadingMappedIfSafe error:nil];
+        if (framePath && ([framePath isEqualToString:xwdPath] || frameIsLiveFramebuffer)) {
+            NSData *xwd = [NSData dataWithContentsOfFile:framePath options:NSDataReadingMappedIfSafe error:nil];
             if ([target.windowID isEqualToString:@"root"]) {
                 img = ImageFromXWDData(xwd, &decodedSize);
             } else {
@@ -1113,10 +1247,18 @@ static NSString *ModifierKeyNameForMask(NSEventModifierFlags mask) {
 
         dispatch_async(dispatch_get_main_queue(), ^{
             [self finishRefresh];
+            NSString *previousWindowID = self.selectedWindow.windowID;
             self.selectedWindow = target;
             self.window.title = [NSString stringWithFormat:@"HaSe %@ - %@",
                                  self.bottle,
                                  [target.title length] ? target.title : target.windowID];
+            if (![target.windowID isEqualToString:@"root"] &&
+                ![previousWindowID isEqualToString:target.windowID]) {
+                NSString *script = [NSString stringWithFormat:
+                    @"xdotool windowraise %@ 2>/dev/null || true; xdotool windowfocus %@ 2>/dev/null || true",
+                    ShellQuote(target.windowID), ShellQuote(target.windowID)];
+                [self sendInputScript:script];
+            }
 
             if (rc != 0 || !img) {
                 NSString *err = [captureError length] ? captureError : @"Waiting for Steam to initialize...";
@@ -1190,9 +1332,20 @@ static int RunWindowWatcher(NSString *bottle, const char *argv0) {
 
         NSString *errorText = nil;
         NSArray<HaSeLinuxWindow *> *windows = FetchLinuxWindows(bottle, &errorText);
+        BOOL hasGameWindow = NO;
+        for (HaSeLinuxWindow *w in windows) {
+            if ([w.windowID isEqualToString:@"root"]) continue;
+            if (!TitleLooksSteamLike(w.title)) {
+                hasGameWindow = YES;
+                break;
+            }
+        }
+
+        BOOL showSteamWhileGame = BoolFromCString(getenv("HASE_SHOW_STEAM_WHILE_GAME"), NO);
         NSMutableSet<NSString *> *currentWindowIDs = [NSMutableSet set];
         for (HaSeLinuxWindow *w in windows) {
             if ([w.windowID isEqualToString:@"root"]) continue;
+            if (hasGameWindow && !showSteamWhileGame && TitleLooksSteamLike(w.title)) continue;
             [currentWindowIDs addObject:w.windowID];
         }
 
@@ -1207,12 +1360,14 @@ static int RunWindowWatcher(NSString *bottle, const char *argv0) {
 
         for (HaSeLinuxWindow *w in windows) {
             if ([w.windowID isEqualToString:@"root"]) continue;
+            if (hasGameWindow && !showSteamWhileGame && TitleLooksSteamLike(w.title)) continue;
             if ([children objectForKey:w.windowID]) continue;
 
             pid_t pid = fork();
             if (pid == 0) {
-                setenv("HASE_HOST_TARGET_FPS", "144", 0);
-                setenv("HASE_HOST_MIN_FPS", "60", 0);
+                setenv("HASE_HOST_TARGET_FPS", "30", 0);
+                setenv("HASE_HOST_MIN_FPS", "20", 0);
+                setenv("HASE_CAPTURE_ON_WASD", "0", 0);
                 setenv("HASE_WINDOW_RELIST_INTERVAL", "30", 0);
                 execl(exePath, exePath, [bottle UTF8String], [w.windowID UTF8String], (char *)NULL);
                 _exit(127);
